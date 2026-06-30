@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "OpenAir Timesheet Importer",
+  "version": "1.0.0",
+  "description": "Drag-and-drop your weekly Excel timesheet directly into OpenAir.",
+  "host_permissions": [
+    "https://connor-group.app.netsuitesuiteprojectspro.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://connor-group.app.netsuitesuiteprojectspro.com/*"],
+      "js": ["lib/xlsx.full.min.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

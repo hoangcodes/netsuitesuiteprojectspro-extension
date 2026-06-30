@@ -1,0 +1,331 @@
+/* content.css — OpenAir Timesheet Importer
+   Injected into the page; all selectors are prefixed oai- to avoid collisions. */
+
+/* ─── Panel ───────────────────────────────────────────────────────────────── */
+
+#oai-panel {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 272px;
+  background: #ffffff;
+  border: 1px solid #d0d5dd;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  font-size: 13px;
+  color: #1a202c;
+  z-index: 2147483647;
+  overflow: hidden;
+}
+
+.oai-header {
+  background: #1d4ed8;
+  color: #ffffff;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.oai-title {
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+
+.oai-body {
+  padding: 14px;
+}
+
+/* ─── Drop zone ───────────────────────────────────────────────────────────── */
+
+.oai-dropzone {
+  border: 2px dashed #93c5fd;
+  border-radius: 8px;
+  padding: 18px 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease;
+  user-select: none;
+  outline: none;
+}
+
+.oai-dropzone:hover,
+.oai-dropzone:focus,
+.oai-dropzone--active {
+  border-color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.oai-dropzone-icon {
+  font-size: 28px;
+  margin-bottom: 6px;
+  line-height: 1;
+}
+
+.oai-dropzone-text {
+  color: #475569;
+  line-height: 1.55;
+}
+
+.oai-link {
+  color: #1d4ed8;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ─── Status area ─────────────────────────────────────────────────────────── */
+
+.oai-status {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.oai-status:empty {
+  display: none;
+}
+
+.oai-status--success { color: #15803d; }
+.oai-status--error   { color: #b91c1c; }
+.oai-status--warning { color: #92400e; }
+.oai-status--info    { color: #1e40af; }
+
+.oai-status ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+
+/* ─── Spinner ─────────────────────────────────────────────────────────────── */
+
+.oai-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #93c5fd;
+  border-top-color: #1d4ed8;
+  border-radius: 50%;
+  animation: oai-spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+@keyframes oai-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ─── Shared button styles ────────────────────────────────────────────────── */
+
+.oai-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 18px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.14s ease, border-color 0.14s ease;
+  white-space: nowrap;
+}
+
+.oai-btn--primary {
+  background: #1d4ed8;
+  color: #ffffff;
+  border-color: #1d4ed8;
+}
+
+.oai-btn--primary:hover {
+  background: #1e40af;
+  border-color: #1e40af;
+}
+
+.oai-btn--secondary {
+  background: #ffffff;
+  color: #374151;
+  border-color: #d1d5db;
+}
+
+.oai-btn--secondary:hover {
+  background: #f9fafb;
+}
+
+/* ─── Confirmation modal ──────────────────────────────────────────────────── */
+
+.oai-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.52);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2147483646;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.oai-modal {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 28px 28px 22px;
+  max-width: 920px;
+  width: 100%;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
+  box-sizing: border-box;
+}
+
+.oai-modal-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.oai-warning {
+  margin: 0;
+  padding: 10px 14px;
+  background: #fefce8;
+  border: 1px solid #fde047;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: #713f12;
+}
+
+/* Scrollable table container */
+.oai-table-wrap {
+  overflow: auto;
+  flex: 1 1 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.oai-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.oai-preview-table th {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+  color: #475569;
+  z-index: 1;
+}
+
+.oai-preview-table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: top;
+  color: #1e293b;
+}
+
+.oai-preview-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.oai-preview-table tbody tr:hover td {
+  background: #f8fafc;
+}
+
+.oai-row--unmatched td {
+  background: #fef2f2 !important;
+}
+
+.oai-unmatched-badge {
+  display: inline-block;
+  background: #fee2e2;
+  color: #b91c1c;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.oai-notes-cell {
+  color: #64748b;
+  max-width: 200px;
+  word-break: break-word;
+}
+
+.oai-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+/* ─── Disambiguation prompt ───────────────────────────────────────────────── */
+
+.oai-disambig-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.52);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2147483647;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.oai-disambig-box {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 24px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
+  box-sizing: border-box;
+}
+
+.oai-disambig-heading {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.oai-disambig-desc {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.55;
+}
+
+.oai-disambig-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.oai-btn--candidate {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: #e2e8f0;
+  text-align: left;
+  padding: 9px 12px;
+  white-space: normal;
+  word-break: break-word;
+  font-size: 12.5px;
+}
+
+.oai-btn--candidate:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
