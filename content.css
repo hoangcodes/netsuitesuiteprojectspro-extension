@@ -23,7 +23,7 @@
 
 .oai-header {
   background: var(--oai-accent, #44536B);
-  color: #ffffff;
+  color: var(--oai-on-accent, #ffffff);
   padding: 10px 14px;
   display: flex;
   align-items: center;
@@ -186,7 +186,7 @@
 
 .oai-btn--primary {
   background: var(--oai-accent, #44536B);
-  color: #ffffff;
+  color: var(--oai-on-accent, #ffffff);
   border-color: var(--oai-accent, #44536B);
 }
 
@@ -427,6 +427,19 @@
   color: #111827;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
 }
+
+.oai-conf-title-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.oai-info-icon {
+  display: inline-flex;
+  align-items: center;
+  color: #94a3b8;
+  cursor: default;
+}
+.oai-info-icon:hover { color: #64748b; }
 
 /* Inner scroll area */
 .oai-conf-inner {
@@ -903,6 +916,16 @@
   border-radius: 8px;
 }
 
+/* Surprise: spinner box shown while the gif loads (matches the gif size so the modal
+   doesn't resize when the gif reveals). */
+.oai-gif-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 120px;
+  height: 120px;
+}
+
 .oai-gif-label {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
   font-size: 15px;
@@ -911,7 +934,8 @@
   letter-spacing: 0.01em;
 }
 
-.oai-gif-chance {
+.oai-gif-chance,
+.oai-gif-reward {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
   font-size: 12px;
   color: #64748b;

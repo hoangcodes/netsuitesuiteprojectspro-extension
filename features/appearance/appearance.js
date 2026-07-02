@@ -9,11 +9,12 @@ var OAIAppearance = (function () {
   var DEFAULT_MODE  = 'light';
 
   var COLOR_OPTIONS = [
-    { value: 'slate',  label: 'Netsuite Slate (default)', hex: '#44536B', dark: '#303d50' },
-    { value: 'nam',    label: 'Nam Blue',                 hex: '#0166B1', dark: '#014E86' },
-    { value: 'sias',   label: 'Sias Violet',              hex: '#833AB4', dark: '#6B2E93' },
-    { value: 'wilson', label: 'Wilson Orange',            hex: '#F77737', dark: '#DD5E1E' },
-    { value: 'coe',    label: 'COE Green',                hex: '#075E54', dark: '#054A42' },
+    { value: 'slate', label: 'Netsuite Slate (default)', hex: '#44536B', dark: '#303d50' },
+    { value: 'nam',   label: 'Nam Blue',                 hex: '#1B3D82', dark: '#143061' },
+    { value: 'becky', label: 'Becky Maroon',             hex: '#550000', dark: '#3D0000' },
+    { value: 'jenna', label: 'Jenna Purple',             hex: '#6C3BAA', dark: '#572E89' },
+    { value: 'omkar', label: 'Omkar Gold',               hex: '#DAA520', dark: '#B8860B' },
+    { value: 'alec',  label: 'Alec Green',               hex: '#40826D', dark: '#336654' },
   ];
 
   var MODE_OPTIONS = [

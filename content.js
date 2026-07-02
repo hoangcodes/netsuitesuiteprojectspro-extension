@@ -28,20 +28,34 @@
 
   var _themeMode  = 'light';
   var _themeColor = 'slate';
+  var _hideSurprise = false; // "Preferences > don't show surprise button" (chrome.storage.sync)
 
   var THEME_ACCENTS = {
-    slate:  { hex: '#44536B', dark: '#303d50' },
-    nam:    { hex: '#0166B1', dark: '#014E86' },
-    wilson: { hex: '#F77737', dark: '#DD5E1E' },
-    sias:   { hex: '#833AB4', dark: '#6B2E93' },
-    coe:    { hex: '#075E54', dark: '#054A42' },
+    slate: { hex: '#44536B', dark: '#303d50' },
+    nam:   { hex: '#1B3D82', dark: '#143061' },
+    becky: { hex: '#550000', dark: '#3D0000' },
+    jenna: { hex: '#6C3BAA', dark: '#572E89' },
+    omkar: { hex: '#DAA520', dark: '#B8860B' },
+    alec:  { hex: '#40826D', dark: '#336654' },
   };
+
+  // Pick readable text (dark or white) for a given accent background, so light accents
+  // (e.g. a bright gold) get dark text instead of unreadable white.
+  function readableOn(hex) {
+    var h = String(hex || '').replace('#', '');
+    if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+    var r = parseInt(h.substr(0,2),16)/255, g = parseInt(h.substr(2,2),16)/255, b = parseInt(h.substr(4,2),16)/255;
+    function lin(c){ return c <= 0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4); }
+    var L = 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b);
+    return L > 0.38 ? '#1f2937' : '#ffffff';
+  }
 
   function buildThemeCSS(mode, accent) {
     var a = accent.hex, ad = accent.dark;
+    var onAccent = readableOn(a); // dark or white text that reads on the accent background
     // Expose the accent as CSS variables so content.css picks up the chosen colour
     // everywhere it used to hard-code slate (panel header, dropzone, spinner, etc.).
-    var rootVars = ':root{--oai-accent:' + a + ';--oai-accent-dark:' + ad + ';--oai-accent-soft:' + a + '1a;}';
+    var rootVars = ':root{--oai-accent:' + a + ';--oai-accent-dark:' + ad + ';--oai-accent-soft:' + a + '1a;--oai-on-accent:' + onAccent + ';}';
     // Accent overrides (all modes)
     var css = rootVars + '\n' + [
       '.oai-btn--primary{background:' + a + '!important;border-color:' + a + '!important}',
@@ -65,8 +79,8 @@
       // Panel widget
       '#oai-panel{background:' + surf + '!important;border-color:' + bdr + '!important;color:' + t1 + '!important}',
       '#oai-panel .oai-header{border-color:' + bdr + '!important}',
-      '#oai-panel .oai-header span,#oai-panel .oai-header svg{color:' + t1 + '!important}',
-      '#oai-panel .oai-title{color:' + t1 + '!important}',
+      '#oai-panel .oai-header span,#oai-panel .oai-header svg{color:' + onAccent + '!important}',
+      '#oai-panel .oai-title{color:' + onAccent + '!important}',
       '#oai-panel .oai-body{background:' + surf + '!important}',
       '#oai-panel p,#oai-panel small{color:' + t2 + '!important}',
       '.oai-dropzone{background:' + bg + '!important;border-color:' + bdr + '!important;color:' + t3 + '!important}',
@@ -107,7 +121,7 @@
       '.oai-sheet-item:hover{background:' + surfAlt + '!important}',
       // Completion modal + audit log (dark/cool need light, contrasting text)
       '.oai-completion-msg{color:' + t1 + '!important}',
-      '.oai-gif-chance{color:' + t2 + '!important}',
+      '.oai-gif-chance,.oai-gif-reward{color:' + t2 + '!important}',
       '.oai-audit{border-color:' + bdr + '!important}',
       '.oai-audit-title{color:' + t1 + '!important}',
       '.oai-audit-summary{color:' + t3 + '!important}',
@@ -133,12 +147,14 @@
   }
 
   // Read theme on content script load and react to future changes
-  chrome.storage.sync.get(['oai_theme_color', 'oai_theme_mode'], function (prefs) {
+  chrome.storage.sync.get(['oai_theme_color', 'oai_theme_mode', 'oai_hide_surprise'], function (prefs) {
     applyContentTheme(prefs.oai_theme_color, prefs.oai_theme_mode);
+    _hideSurprise = !!prefs.oai_hide_surprise;
   });
 
   chrome.storage.onChanged.addListener(function (changes, area) {
     if (area !== 'sync') return;
+    if (changes.oai_hide_surprise) _hideSurprise = !!changes.oai_hide_surprise.newValue;
     var color = changes.oai_theme_color ? changes.oai_theme_color.newValue : _themeColor;
     var mode  = changes.oai_theme_mode  ? changes.oai_theme_mode.newValue  : _themeMode;
     applyContentTheme(color, mode);
@@ -301,21 +317,39 @@
       var ceVal = ceValues[i];
 
       if (!ceVal || ceVal === '' || ceVal === ':') {
-        // Edge case: the user left this Client:Engagement blank in the modal. We can't
-        // commit a value, so - as in the original logic - spawn a placeholder row with
-        // the "Add duplicate row below" button instead of skipping it, so the row still
-        // exists and stays aligned with the modal (the user can pick its C:E manually).
-        var beforeIds = new Set(Array.from(document.querySelectorAll('[id^="ts_c1_r"]')).map(function (s) { return s.id; }));
-        var dupBtn = document.querySelector('a[aria-label="Add duplicate row below"]');
-        if (!dupBtn) { rowNums.push(null); continue; }
-        dupBtn.click();
-        var addedRow = null;
-        for (var b = 0; b < 60; b++) {
-          await delay(100);
-          var nw = Array.from(document.querySelectorAll('[id^="ts_c1_r"]')).find(function (s) { return !beforeIds.has(s.id); });
-          if (nw) { var mm = nw.id.match(/ts_c1_r(\d+)/); addedRow = mm ? parseInt(mm[1], 10) : null; break; }
+        // Blank Client:Engagement — the user left it blank AND there was no
+        // "Connor Group : Open Code Pending" fallback (that substitution happens in Phase 1).
+        // OpenAir won't spawn a row for a blank value, so commit a TEMPORARY valid option
+        // just to make the row exist (this loads tasks + spawns the next empty row), record
+        // the row number, then reset that row's Client:Engagement back to blank.
+        var erBlank = Array.from(document.querySelectorAll('[id^="ts_c1_r"]'))
+          .find(function (s) { return /timesheetEmptyRowControl/.test(s.className); });
+        if (!erBlank) { rowNums.push(null); continue; }
+        var emB = erBlank.id.match(/ts_c1_r(\d+)/);
+        var blankRowNum = emB ? parseInt(emB[1], 10) : null;
+        var prevCountB = document.querySelectorAll('[id^="ts_c1_r"]').length;
+        // First real option on the control = the throwaway value used to create the row.
+        var tempVal = null;
+        for (var t = 0; t < erBlank.options.length; t++) {
+          var tv = erBlank.options[t].value;
+          if (tv && tv !== ':' && tv !== '_FIND') { tempVal = tv; break; }
         }
-        rowNums.push(addedRow);
+        if (!tempVal) { rowNums.push(null); continue; } // no options at all — can't create a row
+        erBlank.value = tempVal;
+        erBlank.dispatchEvent(new Event('input',  { bubbles: true }));
+        erBlank.dispatchEvent(new Event('change', { bubbles: true }));
+        for (var wB = 0; wB < 60; wB++) {
+          await delay(100);
+          if (document.querySelectorAll('[id^="ts_c1_r"]').length > prevCountB) break;
+        }
+        // Reset the just-created row's Client:Engagement back to blank.
+        var createdSel = document.getElementById('ts_c1_r' + blankRowNum);
+        if (createdSel) {
+          createdSel.value = ':';
+          createdSel.dispatchEvent(new Event('input',  { bubbles: true }));
+          createdSel.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        rowNums.push(blankRowNum);
         continue;
       }
 
@@ -360,21 +394,21 @@
         input.dispatchEvent(new Event('input',  { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
         if (entry.notes) {
-          await delay(100);
+          await delay(200);
           var notesEl = document.getElementById(notesId);
           if (notesEl) {
             notesEl.click();
-            await delay(250);
+            await delay(350);
             var ta = document.getElementById('tm_notes');
             if (ta) {
               ta.value = entry.notes;
               ta.dispatchEvent(new Event('input',  { bubbles: true }));
               ta.dispatchEvent(new Event('change', { bubbles: true }));
             }
-            await delay(100);
+            await delay(200);
             var ok = document.querySelector('.dialogOkButton');
             if (ok) ok.click();
-            await delay(100);
+            await delay(200);
           }
         }
         results.success++;
@@ -410,7 +444,7 @@
         if (sel) {
           sel.value = taskVal;
           sel.dispatchEvent(new Event('change', { bubbles: true }));
-          await delay(200);
+          await delay(300);
         }
       }
     }
@@ -454,16 +488,23 @@
       var row = rows[r]; if (!row) continue;
       var client = String(row[0] || '').trim();
       var task   = String(row[1] || '').trim();
-      if (!client && !task) continue;
+      // Skip only summary/total rows. A row is included whenever ANY day has time or notes,
+      // even if Client/Task were left blank in Excel — a blank Client:Engagement/Task falls
+      // back to "Connor Group : Open Code Pending" at fill time and can be set in the review.
       if (/^total/i.test(client)) continue;
+      // Group key controls how rows merge in the review grid. Rows sharing the same real
+      // Client:Engagement + Task merge into one row; but rows with a BLANK Client:Engagement
+      // are kept DISTINCT per Excel row, otherwise multiple empty-client rows collide on the
+      // same key and overwrite each other's day values.
+      var groupKey = client ? (client + '\x00' + task) : ('\x00__blankrow_' + r);
       for (var dc of dayCols) {
-        var raw = row[dc.idx];
-        if (raw === null || raw === undefined || raw === '') { skippedCells++; continue; }
-        var hours = parseFloat(raw);
-        if (isNaN(hours) || hours <= 0) { skippedCells++; continue; }
-        var notes = String(row[dc.notesIdx] || '').trim();
-        entries.push({ clientEngagement: client, task: task, hours: hours, notes: notes,
-                       col: dc.col, dayName: dc.day, row: null });
+        var raw      = row[dc.idx];
+        var notes    = String(row[dc.notesIdx] || '').trim();
+        var hours    = parseFloat(raw);
+        var hasHours = !(isNaN(hours) || hours <= 0);
+        if (!hasHours && !notes) { skippedCells++; continue; } // nothing entered this day
+        entries.push({ clientEngagement: client, task: task, hours: hasHours ? hours : 0, notes: notes,
+                       col: dc.col, dayName: dc.day, row: null, groupKey: groupKey });
       }
     }
     if (entries.length === 0) throw new Error('No time entries found. Check hours are filled in.');
@@ -629,13 +670,16 @@
 
       for (var d = 0; d < 7; d++) {
         var cell = r.days[d];
-        if (cell && cell.hours > 0) {
-          dayTotals[d] += cell.hours;
+        var hasHours = cell && cell.hours > 0;
+        var hasNotes = cell && cell.notes;
+        if (hasHours || hasNotes) {
+          if (hasHours) dayTotals[d] += cell.hours;
           var tipText = cell.notes || 'No notes';
           var ind = cell.notes
             ? '<span class="oai-conf-ind oai-conf-ind--yes" data-oai-tip="Notes present">&#10003;</span>'
-            : '<span class="oai-conf-ind oai-conf-ind--no"  data-oai-tip="No notes">&#10005;</span>';
-          html += '<td class="oai-conf-td oai-conf-td--hours oai-conf-td--filled" data-oai-tip="' + esc(tipText) + '"><span class="oai-cell-content">' + cell.hours.toFixed(2) + ind + '</span></td>';
+            : '<span class="oai-conf-ind oai-conf-ind--no" data-oai-tip="No notes">&#10005;</span>';
+          var hoursText = hasHours ? cell.hours.toFixed(2) : '&mdash;';
+          html += '<td class="oai-conf-td oai-conf-td--hours oai-conf-td--filled" data-oai-tip="' + esc(tipText) + '"><span class="oai-cell-content">' + hoursText + ind + '</span></td>';
         } else {
           html += '<td class="oai-conf-td oai-conf-td--hours oai-conf-td--empty">&mdash;</td>';
         }
@@ -672,14 +716,14 @@
   function _statsHtml(stats) {
     return '<div class="oai-conf-stats-banner">Found <strong>' + stats.entries +
       '</strong> time entries for <strong>' + stats.dataRows +
-      '</strong> client/task row(s). Skipped <strong>' + stats.skippedCells + '</strong> empty cells.</div>';
+      '</strong> client/task row(s).</div>';
   }
 
   // Phase 1 grid: Client:Engagement dropdown | Sun-Sat | Total
   function buildPhase1Grid(entries, allOptions, matchMap, stats) {
     var rowKeys = [], rowMap = new Map();
     for (var e of entries) {
-      var key = e.clientEngagement + '\x00' + e.task;
+      var key = e.groupKey;
       if (!rowMap.has(key)) {
         rowKeys.push(key);
         rowMap.set(key, { client: e.clientEngagement, task: e.task, days: new Array(7).fill(null), _clientCellHtml: '' });
@@ -735,7 +779,7 @@
   function buildPhase2Grid(entries, rowTaskOptions, taskMap, meta) {
     var rowKeys = [], rowMap = new Map();
     for (var e of entries) {
-      var key = e.clientEngagement + '\x00' + e.task;
+      var key = e.groupKey;
       if (!rowMap.has(key)) {
         rowKeys.push(key);
         rowMap.set(key, {
@@ -948,13 +992,19 @@
           auditHtml +
         '</div>' +
         '<div class="oai-conf-actions">' +
-          '<button class="oai-btn oai-btn--secondary" id="oai-surprise">surprise</button>' +
+          (_hideSurprise ? '' : '<button class="oai-btn oai-btn--secondary" id="oai-surprise">surprise</button>') +
           '<div class="oai-conf-buttons">' +
             '<button class="oai-btn oai-btn--primary" id="oai-done-close">Close</button>' +
           '</div>' +
         '</div>';
       overlay.appendChild(modal);
       document.body.appendChild(overlay);
+
+      // Warm the emote cache in the background so the surprise reveal is quick.
+      if (!_hideSurprise) {
+        ((window.OAI_GIFS && window.OAI_GIFS.length) ? window.OAI_GIFS : OAI_GIFS_FALLBACK)
+          .forEach(function (g) { if (g && g.url) { var pre = new Image(); pre.src = g.url; } });
+      }
 
       modal.querySelector('#oai-done-close').addEventListener('click', function () {
         if (overlay.parentNode) document.body.removeChild(overlay);
@@ -963,15 +1013,35 @@
 
       // 'surprise' - roll a gif and show it (with its odds); the page's CSP allows
       // chrome-extension: images, so a direct URL renders fine. Hide the button after use.
-      modal.querySelector('#oai-surprise').addEventListener('click', function () {
+      var surpriseBtn = modal.querySelector('#oai-surprise');
+      if (surpriseBtn) surpriseBtn.addEventListener('click', function () {
         var picked = rollGif();
         if (!picked) return;
         var body = modal.querySelector('.oai-completion-body');
         var btn  = modal.querySelector('#oai-surprise');
         if (btn) btn.style.display = 'none';
-        body.innerHTML =
-          '<img src="' + esc(picked.url) + '" class="oai-gif-img" alt="' + esc(picked.alt) + '">' +
-          '<div class="oai-gif-chance">this gif had a <strong>' + picked.chance + '%</strong> chance of appearing!</div>';
+        var title = modal.querySelector('.oai-conf-title');
+        if (title) title.textContent = 'Surprise'; // header becomes "Surprise" for the gif view
+
+        // Show a spinner while the gif loads, then reveal the gif + subtext AT THE SAME TIME
+        // (revealing the subtext first would spoil the surprise).
+        body.innerHTML = '<div class="oai-gif-loading"><span class="oai-spinner oai-spinner--lg"></span></div>';
+
+        var revealed = false;
+        function reveal() {
+          if (revealed) return; revealed = true;
+          body.innerHTML =
+            '<img src="' + esc(picked.url) + '" class="oai-gif-img" alt="' + esc(picked.alt) + '">' +
+            '<div class="oai-gif-chance">this gif had a <strong>' + picked.chance + '%</strong> chance of appearing!</div>' +
+            (picked.reward ? '<div class="oai-gif-reward">' + esc(picked.reward) + '</div>' : '');
+        }
+
+        var pre = new Image();
+        pre.onload  = reveal;   // image is cached now, so the reveal renders it instantly
+        pre.onerror = reveal;   // still reveal (rather than spin forever) if it fails to load
+        pre.src = picked.url;
+        if (pre.complete) reveal();               // already cached from the preload
+        setTimeout(reveal, 4000);                  // safety net
       });
     });
   }
@@ -982,33 +1052,57 @@
   // via window.OAI_GIFS. This inline copy is ONLY used as a fallback if that global didn't
   // load, so the surprise button never dead-ends. Edit gifs.js to change the list.
   var OAI_GIFS_FALLBACK = [
-    { url: 'https://cdn3.emoji.gg/emojis/366752-cat.gif',                 alt: 'cat' },
-    { url: 'https://cdn3.emoji.gg/emojis/666930-catrun.gif',             alt: 'CatRun' },
-    { url: 'https://cdn3.emoji.gg/emojis/257763-dancingcat.gif',         alt: 'DancingCat' },
-    { url: 'https://cdn3.emoji.gg/emojis/656926-wiggletailcat.gif',      alt: 'wiggletailcat' },
-    { url: 'https://cdn3.emoji.gg/emojis/79967-happy-shiba-tailwag.gif', alt: 'happy_shiba_tailwag' },
-    { url: 'https://cdn3.emoji.gg/emojis/136245-sneakycat.gif',          alt: 'sneakycat', chance: 5 },
-    { url: 'https://cdn3.emoji.gg/emojis/3516-scubbacat.gif',            alt: 'Scubbacat', chance: 1 },
-    { url: 'https://cdn3.emoji.gg/emojis/623251-shocked.gif',            alt: 'shocked',   chance: 1 },
-    { url: 'https://cdn3.emoji.gg/emojis/29323-doggorun.gif',            alt: 'Doggorun',  chance: 2 },
+    { url: 'https://cdn3.emoji.gg/emojis/366752-cat.gif',                   alt: 'cat' },
+    { url: 'https://cdn3.emoji.gg/emojis/666930-catrun.gif',               alt: 'CatRun' },
+    { url: 'https://cdn3.emoji.gg/emojis/257763-dancingcat.gif',           alt: 'DancingCat' },
+    { url: 'https://cdn3.emoji.gg/emojis/656926-wiggletailcat.gif',        alt: 'wiggletailcat' },
+    { url: 'https://cdn3.emoji.gg/emojis/79967-happy-shiba-tailwag.gif',   alt: 'happy_shiba_tailwag' },
+    { url: 'https://cdn3.emoji.gg/emojis/679076-dogkeyboard.gif',          alt: 'DogKeyboard' },
+    { url: 'https://cdn3.emoji.gg/emojis/996211-pikachu.gif',              alt: 'pikachu' },
+    { url: 'https://cdn3.emoji.gg/emojis/700719-hellokittysleighride.gif', alt: 'HelloKittySleighRide' },
+    { url: 'https://cdn3.emoji.gg/emojis/281357-christmashellokitty.gif',  alt: 'ChristmasHelloKitty' },
+    { url: 'https://cdn3.emoji.gg/emojis/747946-yoshi.gif',                alt: 'Yoshi' },
+    { url: 'https://cdn3.emoji.gg/emojis/136245-sneakycat.gif',            alt: 'sneakycat', chance: 5 },
+    { url: 'https://cdn3.emoji.gg/emojis/3516-scubbacat.gif',              alt: 'Scubbacat', chance: 1 },
+    { url: 'https://cdn3.emoji.gg/emojis/623251-shocked.gif',              alt: 'shocked',   chance: 1 },
+    { url: 'https://cdn3.emoji.gg/emojis/29323-doggorun.gif',              alt: 'Doggorun',  chance: 2 },
+    { url: 'https://cdn3.emoji.gg/emojis/8196-yoshi-bonk.gif',             alt: 'yoshi_bonk', chance: 1 },
+    { url: 'https://cdn3.emoji.gg/emojis/13344-cat-wtf.gif',               alt: 'cat_wtf', chance: 0.5, reward: 'please screenshot this to Q, he owes you a coffee' },
   ];
 
-  // Roll one gif from window.OAI_GIFS (defined in gifs.js). Entries may pin a `chance`
-  // (percentage); any entry without one splits the leftover evenly, then everything is
-  // normalised to 100%. Returns { url, alt, chance } where chance is the effective %.
+  // Build the weight for every gif. Entries with a pinned `chance` keep it; entries WITHOUT
+  // one are RANDOMLY assigned a share of the leftover budget so that the grand total is
+  // exactly 100%. Computed once per session (memoised) so the displayed odds stay stable.
+  var _gifWeights = null, _gifWeightsLen = -1;
+  function computeGifWeights(list) {
+    var pinnedSum = 0, unpinned = [];
+    list.forEach(function (g, i) { if (typeof g.chance === 'number') pinnedSum += g.chance; else unpinned.push(i); });
+    var budget  = Math.max(0, 100 - pinnedSum);
+    var weights = list.map(function (g) { return typeof g.chance === 'number' ? g.chance : 0; });
+    if (unpinned.length) {
+      var rand = unpinned.map(function () { return Math.random(); });
+      var rsum = rand.reduce(function (a, b) { return a + b; }, 0) || 1;
+      unpinned.forEach(function (idx, k) { weights[idx] = budget * rand[k] / rsum; }); // random share of leftover
+    }
+    return weights;
+  }
+
+  // Roll one gif from window.OAI_GIFS (gifs.js; OAI_GIFS_FALLBACK if it didn't load).
+  // Returns { url, alt, chance, reward } — chance is the effective % (up to 1 decimal).
   function rollGif() {
     var list = ((window.OAI_GIFS && window.OAI_GIFS.length) ? window.OAI_GIFS : OAI_GIFS_FALLBACK).slice();
     if (!list.length) return null;
-    var pinned = 0, unpinned = 0;
-    list.forEach(function (g) {
-      if (typeof g.chance === 'number') pinned += g.chance; else unpinned++;
-    });
-    var each = unpinned > 0 ? Math.max(0, (100 - pinned) / unpinned) : 0;
-    var weights = list.map(function (g) { return typeof g.chance === 'number' ? g.chance : each; });
+    if (!_gifWeights || _gifWeightsLen !== list.length) { _gifWeights = computeGifWeights(list); _gifWeightsLen = list.length; }
+    var weights = _gifWeights;
     var total = weights.reduce(function (a, w) { return a + w; }, 0) || 1;
     var roll = Math.random() * total, cum = 0, idx = 0;
     for (var i = 0; i < weights.length; i++) { cum += weights[i]; if (roll < cum) { idx = i; break; } }
-    return { url: list[idx].url, alt: list[idx].alt || '', chance: Math.round(weights[idx] / total * 100) };
+    return {
+      url:    list[idx].url,
+      alt:    list[idx].alt || '',
+      chance: +(weights[idx] / total * 100).toFixed(1),
+      reward: list[idx].reward || ''
+    };
   }
 
   function showLoadingModal(message) {
@@ -1033,7 +1127,7 @@
       var matchMap = new Map();
       var seen = new Set();
       for (var e of entries) {
-        var key = e.clientEngagement + '\x00' + e.task;
+        var key = e.groupKey;
         if (!seen.has(key)) { seen.add(key); matchMap.set(key, e.matchedValue || null); }
       }
 
@@ -1057,7 +1151,10 @@
 
       modal.innerHTML =
         '<div class="oai-conf-header">' +
-          '<span class="oai-conf-title">Step 1: Review Data</span>' +
+          '<span class="oai-conf-title-group">' +
+            '<span class="oai-conf-title">Step 1: Review Data</span>' +
+            '<span class="oai-info-icon" data-oai-tip="This tool reads your Excel file row by row and matches the hours and notes in each day column to the right Client : Engagement in OpenAir. Review the Client : Engagement column here before moving on to tasks."><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span>' +
+          '</span>' +
           '<button class="oai-modal-x" id="oai-p1-x" aria-label="Close">&times;</button>' +
         '</div>' +
         '<div class="oai-conf-inner">' + gridHtml + '</div>' +
@@ -1080,7 +1177,7 @@
       (function () {
         var seenc = new Set();
         entries.forEach(function (e) {
-          var k = e.clientEngagement + '\x00' + e.task;
+          var k = e.groupKey;
           if (!seenc.has(k)) { seenc.add(k); orderedClients.push(e.clientEngagement); }
         });
       })();
@@ -1144,7 +1241,7 @@
         // separator does not survive an HTML attribute round-trip (it becomes U+FFFD),
         // which previously made every row resolve to null (blank tasks + no fill).
         var orderedKeys = [];
-        entries.forEach(function (e) { var k = e.clientEngagement + '\x00' + e.task; if (orderedKeys.indexOf(k) < 0) orderedKeys.push(k); });
+        entries.forEach(function (e) { var k = e.groupKey; if (orderedKeys.indexOf(k) < 0) orderedKeys.push(k); });
         btn.disabled = true;
         btn.textContent = 'Setting up rows…';
         try {
@@ -1155,7 +1252,7 @@
             if (ceArr[idx] && ceArr[idx] !== ':' && ceArr[idx] !== '') keyToCE.set(k, ceArr[idx]);
           });
           entries.forEach(function (e) {
-            var k = e.clientEngagement + '\x00' + e.task;
+            var k = e.groupKey;
             e.row = keyToRow.has(k) ? keyToRow.get(k) : null;
             var ce = keyToCE.has(k) ? keyToCE.get(k) : null;
             e.matchedValue = ce;
@@ -1203,7 +1300,10 @@
 
       modal.innerHTML =
         '<div class="oai-conf-header">' +
-          '<span class="oai-conf-title">Step 2: Input Tasks</span>' +
+          '<span class="oai-conf-title-group">' +
+            '<span class="oai-conf-title">Step 2: Input Tasks</span>' +
+            '<span class="oai-info-icon" data-oai-tip="For each row, the tool pulls the Tasks OpenAir offers for that Client : Engagement. Pick the matching Task or leave it blank, then Fill Timesheet writes your hours and notes into OpenAir."><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span>' +
+          '</span>' +
           '<button class="oai-modal-x" id="oai-p2-x" aria-label="Close">&times;</button>' +
         '</div>' +
         '<div class="oai-conf-inner">' + gridHtml + '</div>' +
@@ -1347,7 +1447,7 @@
         }
 
         resolved   = resolveRows(rawEntries, existingRows, allOptions);
-        var uniqueKeys = new Set(rawEntries.map(function (e) { return e.clientEngagement + '\x00' + e.task; }));
+        var uniqueKeys = new Set(rawEntries.map(function (e) { return e.groupKey; }));
         stats = { entries: rawEntries.length, dataRows: uniqueKeys.size, skippedCells: skippedCells };
         clearStatus();
 
@@ -1417,7 +1517,7 @@
           var ceValuesOrdered = [], ceKeysOrdered = [];
           var _seenCeKeys = new Set();
           finalEntries.forEach(function (e) {
-            var k = e.clientEngagement + '\x00' + e.task;
+            var k = e.groupKey;
             if (!_seenCeKeys.has(k)) { _seenCeKeys.add(k); ceValuesOrdered.push(e.matchedValue || ':'); ceKeysOrdered.push(k); }
           });
 
@@ -1429,7 +1529,7 @@
           ceKeysOrdered.forEach(function (k, idx) { if (rowNumsNext[idx]) keyToRowNext.set(k, rowNumsNext[idx]); });
           var taskMapNext = new Map();
           finalEntries.forEach(function (e) {
-            var k = e.clientEngagement + '\x00' + e.task;
+            var k = e.groupKey;
             if (keyToRowNext.has(k)) {
               var oldRow = e.row, newRow = keyToRowNext.get(k);
               if (p2.taskMap.has(oldRow) && !taskMapNext.has(newRow)) taskMapNext.set(newRow, p2.taskMap.get(oldRow));
@@ -1511,10 +1611,26 @@
     });
 
     panel.querySelector('#oai-dl-btn').addEventListener('click', function () {
-      var a = document.createElement('a');
-      a.href     = chrome.runtime.getURL('template.xlsx');
-      a.download = 'Timesheet template v1.2.xlsx';
-      a.click();
+      // This runs in the page (https) context, where the `download` filename is IGNORED for
+      // cross-origin chrome-extension: URLs (it would save as "template.xlsx"). Fetch the file
+      // as a blob (same-origin) so the download keeps its tracking name.
+      fetch(chrome.runtime.getURL('template.xlsx'))
+        .then(function (r) { return r.blob(); })
+        .then(function (blob) {
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = 'Timesheet template v1.2.xlsx';
+          a.click();
+          setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+        })
+        .catch(function () {
+          // Fallback: direct link (may save as template.xlsx if the browser ignores the name)
+          var a = document.createElement('a');
+          a.href = chrome.runtime.getURL('template.xlsx');
+          a.download = 'Timesheet template v1.2.xlsx';
+          a.click();
+        });
     });
   }
 

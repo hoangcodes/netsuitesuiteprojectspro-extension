@@ -223,3 +223,60 @@ body {
   cursor: default;
   user-select: none;
 }
+
+/* Preferences: toggle row + switch (selectors are scoped under .oai-pref-row so they
+   out-specify the global `.nav-item span { flex: 1 }` rule and keep the switch sized). */
+.oai-pref-row {
+  cursor: pointer;
+  gap: 10px;
+}
+.oai-pref-row > span:first-child {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  flex: 1;
+}
+.oai-pref-row .oai-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.oai-pref-row .oai-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+}
+.oai-pref-row .oai-switch-track {
+  display: inline-block;
+  position: relative;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+.oai-pref-row .oai-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s;
+}
+.oai-pref-row .oai-switch input:checked + .oai-switch-track {
+  background: var(--accent);
+}
+.oai-pref-row .oai-switch input:checked + .oai-switch-track .oai-switch-thumb {
+  transform: translateX(14px);
+}
+.oai-pref-row .oai-switch input:focus-visible + .oai-switch-track {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+}

@@ -56,7 +56,7 @@
     document.getElementById('downloadExampleBtn').addEventListener('click', () => {
       const a = document.createElement('a');
       a.href     = chrome.runtime.getURL('example.xlsx');
-      a.download = 'Timesheet example.xlsx';
+      a.download = '7.2026 Example.xlsx';
       a.click();
     });
 
@@ -74,6 +74,20 @@
           if (span) span.textContent = 'Copy failed';
           restore();
         });
+      });
+    }
+
+    // Preferences: "don't show surprise button" toggle (persisted to chrome.storage.sync;
+    // the content script reads oai_hide_surprise and omits the button on the completion modal)
+    var surprisePref = document.getElementById('oai-surprise-pref');
+    if (surprisePref) {
+      // "surprise" ON = show the button; default ON. Stored as oai_hide_surprise (the inverse),
+      // which the content script reads to hide the button when the user turns this off.
+      chrome.storage.sync.get(['oai_hide_surprise'], function (prefs) {
+        surprisePref.checked = !prefs.oai_hide_surprise; // unset -> ON by default
+      });
+      surprisePref.addEventListener('change', function () {
+        chrome.storage.sync.set({ oai_hide_surprise: !surprisePref.checked });
       });
     }
 
