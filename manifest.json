@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "OpenAir Timesheet Importer",
   "version": "1.0.0",
-  "description": "Drag-and-drop your weekly Excel timesheet directly into OpenAir.",
+  "description": "Drag-and-drop your weekly Excel timesheet directly into Netsuite's SuiteProjects Pro (OpenAir).",
   "action": {
     "default_popup": "popup/popup.html",
     "default_title": "OpenAir Timesheet Importer",
