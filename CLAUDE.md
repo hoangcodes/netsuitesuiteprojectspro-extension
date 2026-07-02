@@ -175,3 +175,227 @@ OpenAir pages). Panel should:
 - No external server/backend — everything runs client-side in the extension.
 - No `localStorage`/remote storage of timesheet data — process in-memory per
   session only, given this includes potentially sensitive work notes.
+
+---
+
+## SESSION STATE — last updated 2026-07-01 (session 6)
+
+> Session 6 was a LIVE debugging session driven through Claude-in-Chrome against the
+> real logged-in timesheet. Several long-standing theories were confirmed/disproven.
+
+### Confirmed facts about the live OpenAir page (SuiteProjects Pro)
+
+- The page has **jQuery 3.5.1** in the MAIN world and a global `OA` object, plus globals
+  `change_options` (fn, 2 args), `project_tasks` (fn), `Selectize`, `grid_submit_popup`.
+- Client:Engagement select `ts_c1_r{n}` options are `"customerId:projectId"` (e.g. `1585:3779`),
+  label `"Client : Engagement"`. Task select `ts_c2_r{n}` options are `"taskId"` value,
+  label `"NN: Task Name"`. Both carry `shadowid`/`shadowname` + `select-oa timesheetControlPopup`.
+- **DISPROVEN: the isTrusted / jQuery-only theory.** Setting `ts_c1_r{n}.value` and dispatching a
+  plain synthetic `change` (isTrusted=false) DOES make OpenAir load that row's task options and
+  spawn the next empty row. No user gesture, no jQuery needed. Synthetic events are enough.
+- **How rows really work:** committing a Client:Engagement on the single empty-row control
+  (`select.timesheetEmptyRowControl`) makes OpenAir (a) load that row's tasks and (b) auto-spawn
+  the NEXT empty row. So to build N rows you just commit the empty-row control N times. The old
+  "select firstReal → reset to blank → click Add-duplicate-row N-1×" dance was fighting this and
+  never loaded tasks. Row numbers came back sequential (r1,r2,r3) but code no longer assumes that.
+- Hours inputs `ts_c3..c9_r{n}` are NOT disabled before a task is chosen. Task select + hours both
+  accept synthetic value+change and stick. Notes flow (`ts_notes_*` → dialog → `tm_notes` →
+  `.dialogOkButton`) works and does not navigate.
+- Committing rows does NOT persist unless Save is clicked — a plain reload discards everything.
+- **"Leave site? Changes may not be saved" prompt** = the page's `window.onbeforeunload`. The
+  content script runs in the ISOLATED world, so its `window.onbeforeunload = null` could never
+  clear the PAGE's handler → prompt kept firing on Restart/Save/cross-month navigation.
+
+### Session 6 changes
+
+- **`exposeAndFillClientEngagement(ceValues)` REWRITTEN** — commit-based: for each value, find the
+  current `timesheetEmptyRowControl`, set value + dispatch input/change, wait until a new empty row
+  spawns, record the REAL row number. Returns an array (parallel to ceValues) of real row numbers
+  (null for blank). Verified live: 3 values → rows r1/r2/r3 with 9/9/7 task options loaded.
+- **Callers updated to use the returned row numbers** instead of assuming `idx+1`:
+  Phase-1 `#oai-p1-ok` handler, and the cross-month block (also remaps `entry.row` + a new
+  `taskMapNext` keyed by the new month's rows). Cross-month path is UNVERIFIED (no cross-month sheet
+  was available to test).
+- **Leave-site fix:** new MAIN-world content script `page-helper.js` (manifest: second
+  content_scripts entry with `"world": "MAIN"`, `run_at: document_start`) listens on the shared
+  `document` for `oai-clear-beforeunload` and nulls the page's `window.onbeforeunload`. content.js
+  has a `clearBeforeUnload()` helper (dispatches that event) called before every intentional
+  navigation: `clickSave`, `clickNextMonthLink`, and the Restart reload.
+- Task auto-match (added session 5) is unchanged and now actually has options to match against once
+  rows are built correctly.
+
+### ⚠️ Tooling hazard discovered this session
+
+The **Edit/Write tools TRUNCATE files** in this environment (not just content.js — it silently cut
+`manifest.json` mid-word and lopped the tail off `CLAUDE.md`). Use bash/python heredocs for ALL file
+writes here, then validate (`node --check`, `python3 -c "import json; json.load(...)"`). manifest.json
+and this file were rebuilt via bash after the Edit tool corrupted them.
+
+### Still to verify (next live session)
+
+- Reload the extension and run a real .xlsx end-to-end: confirm rows build, tasks auto-match into the
+  Phase-2 modal, hours+notes fill, and NO "Leave site?" prompt on Restart/Save.
+- Cross-month fill path (needs a timesheet that spans two months).
+- Whether the user's build has `DEV_MODE=true` (save skipped) — flip to false to actually save.
+
+## SESSION STATE — session 5 (task auto-matching + fill diagnostics)
+
+- Added `resolveTaskForRow(taskText, taskOpts)` near `scoreMatch` — scores the Excel task string
+  against live task option labels (strips the "NN: " ID prefix first), reuses `scoreMatch` + 0.4
+  threshold, returns best value or null.
+- `buildPhase2Grid`: when task options are already present, auto-selects the best match and seeds
+  `taskMap` (falls back to "— leave blank for import —").
+- `showTaskSelection`: builds a `rowTaskText` (rowNum→Excel task) map; `pollTaskOptions` auto-selects
+  the best match the moment options load.
+- `handleFile`: captures `fillTasksAndHours` results; if any entries fail, the completion modal lists
+  them (Day + reason) instead of a blanket success.
+
+## SESSION STATE — session 4 (reference)
+
+### Folder structure
+```
+openair-timesheet-google-extension/
+  features/appearance/{appearance.js, appearance.css}   ← ACTIVE (loaded by popup.html)
+  popup/{popup.html, popup.css, popup.js, features/(STUBS)}
+  content.js, content.css, manifest.json, page-helper.js (session 6)
+  lib/xlsx.full.min.js, template.xlsx, assets/ (9 cat emotes)
+```
+
+### OpenAir DOM mapping (confirmed)
+- `ts_c1_r{row}` = Client:Engagement select (col 1); blank row also has class `timesheetEmptyRowControl`
+- `ts_c2_r{row}` = Task select (col 2)
+- `ts_c3_r{row}`..`ts_c9_r{row}` = hours Sun–Sat  (DOW_TO_COL = [3,4,5,6,7,8,9])
+- `ts_notes_c{col}_r{row}` = notes trigger; dialog textarea `tm_notes`; OK button `.dialogOkButton`
+- Client matching: Dice bigram on client name only, threshold 0.4
+
+### Two-phase modal flow
+1. Phase 1 "Step 1: Review Data" — user reviews Client:Engagement dropdown per row.
+2. "Step 2: Tasks" → `exposeAndFillClientEngagement` builds the rows (see session 6 rewrite).
+3. Phase 2 "Step 2: Input Tasks" — review task + hours, "Fill Timesheet" writes; Restart reloads.
+
+### Key functions in content.js
+- `exposeAndFillClientEngagement(ceValues)` — builds rows, returns real row numbers (session 6).
+- `fillTimesheet(entries)` / `fillTasksAndHours(entries, taskMap)` — write hours+notes / tasks+hours.
+- `resolveRows`, `scoreMatch`, `resolveTaskForRow`, `buildPhase1Grid`, `buildPhase2Grid`, `showConfirmation`, `showTaskSelection`.
+- `clearBeforeUnload()` (session 6) — dispatches the main-world onbeforeunload-clear event.
+
+### Other known items
+- `DEV_MODE = true` at top of content.js skips both `clickSave()` calls — set false before shipping.
+- `fillClientEngagements` (old) still defined but NOT called — safe to remove.
+- GIF loading modal exists (`showGifLoadingModal`) but is not wired in.
+
+### Security constraints (must never be violated)
+- No `localStorage` / `sessionStorage` — timesheet data is sensitive.
+- No external server/backend. No remotely-hosted JS (MV3; SheetJS vendored at `lib/xlsx.full.min.js`).
+
+## SESSION STATE — session 7 (isolate single-month fill)
+
+- **Cross-month nav DISABLED** behind `var CROSS_MONTH_ENABLED = false;` (under DEV_MODE). In
+  handleFile, right after `detectCrossMonth()`, `crossMonth` is forced to `{isCross:false}` when the
+  flag is off — this suppresses BOTH the cross-month warning banner and the `clickNextMonthLink()`
+  navigation. That navigation was firing the page's onbeforeunload ("Leave site?") on Fill and, on a
+  2-month sheet, running before/around the fill. Re-enable by flipping the flag once single-month is solid.
+- With cross-month off AND DEV_MODE=true, the Fill path performs NO navigation, so no "Leave site?"
+  prompt should appear on Fill regardless of whether page-helper.js is active.
+- **Added "↻ Refresh tasks" button** to the Phase 2 modal (`#oai-p2-refresh`). Calls new
+  `refreshTaskOptions()` which, per task <select>, re-reads `enumerateTaskOptions(rowNum)` from the
+  live DOM (ts_c2_r{rowNum} = that row's C:E-specific tasks), rebuilds options, keeps a still-valid
+  prior pick else re-runs `resolveTaskForRow` auto-match, and updates taskMap. Manual re-pull for when
+  OpenAir loads tasks after the modal opened or a row came up empty.
+- Delays trimmed 100ms across setup/fill (commit poll 200→100, trailing 300→200, waitForTaskOptions
+  200→100, notes 200→100/350→250, task-set 300→200).
+- REMINDER: after reloading the extension, the OpenAir PAGE must be refreshed for page-helper.js
+  (MAIN world, document_start) to inject — reloading the extension alone does not re-inject into
+  already-open tabs.
+
+## SESSION STATE — session 8 (ROOT CAUSE: blank tasks + fill not firing)
+
+- **Confirmed the real bug (live test):** the entry key uses a `'\x00'` separator
+  (`clientEngagement + '\x00' + task`). Phase 1 wrote that key into a `data-key` HTML
+  attribute and read it back to map rows. HTML parsing replaces NULL (U+0000) with U+FFFD
+  (65533), so `dataset.key` NEVER equaled the in-memory key → every entry's `row` resolved
+  to `null`. Consequences: `fillTimesheet` skipped all rows ("Fill didn't fire") AND
+  `buildPhase2Grid` emitted `data-row=""` so the task poll skipped every select (all
+  dropdowns stuck on "— leave blank for import —"). Verified live: `'a\x00b'` written to a
+  data attr reads back with charCode 65533 at the separator.
+- **Fix:** Phase 1 `#oai-p1-ok` now maps entirely IN MEMORY. It builds `orderedKeys` from
+  `entries` (unique CE+Task in grid order — the client <select>s render one-per-key in that
+  same order, so index i aligns with `ceArr[i]`), then assigns `e.row`, `e.matchedValue`,
+  `e.matchedLabel` directly. No `data-key` round-trip. `finalEntries` now just clones
+  `resolved` (which already carries row/matchedValue/matchedLabel); the old `p1.matchMap`
+  lookup is gone. `matchMap` is still created/returned but unused by the main path.
+- **Fill Timesheet** consequently targets existing rows by id (`ts_c2_r{n}`, `ts_c{col}_r{n}`,
+  `ts_notes_c{col}_r{n}`) and never creates rows. "↻ Refresh tasks" re-reads each row's
+  live options via `enumerateTaskOptions(rowNum)` (now that rowNum is correct).
+- **Cross-month:** DETECTION restored so the warning banner shows again for 2-month sheets;
+  only the auto-navigation stays gated behind `CROSS_MONTH_ENABLED=false`. Banner text is now
+  conditional (single-month-fill wording while nav is disabled). Removed the earlier
+  `crossMonth={isCross:false}` override that had wrongly hidden the banner.
+- **Button positioning:** `.oai-conf-actions` is `justify-content: space-between`; with the
+  banner gone the lone button group slid left. Restored banner + added `margin-left:auto` to
+  `.oai-conf-buttons` so Back / Step 2 stay right-aligned with or without a banner.
+- STILL NEEDS a live end-to-end run (reload extension + refresh page + drop file).
+
+## SESSION STATE — session 9 (themes + save removal + audit cleanup)
+
+- **Save-on-behalf REMOVED entirely** at the user's request. Deleted `clickSave()`, both save
+  blocks in `handleFile`, and the now-unused `DEV_MODE` flag. The tool fills task + hours + notes
+  and the user clicks OpenAir's Save themselves. (`clickNextMonthLink`/`waitForTimesheetGrid` remain
+  for the still-gated cross-month feature; `CROSS_MONTH_ENABLED=false`.)
+- **Color themes reworked.** COLOR_OPTIONS (appearance.js) and THEME_ACCENTS (content.js) are now:
+  slate "Netsuite Slate (default)" #44536B, santorini "Santorini Blue" #00308F,
+  positano "Positano Pink" #FC8EAC, amalfi "Amalfi Coral" #F89880, provence "Provence Purple" #7C3AED.
+  Keys MUST stay in sync between the two files.
+- **Accent is now a CSS variable.** content.css hard-coded slate (#44536B/#303d50) was replaced with
+  `var(--oai-accent[-dark]/-soft, …)`. `buildThemeCSS` emits `:root{--oai-accent…}` so the chosen
+  colour flows to the panel header (accent in all modes now), dropzone, spinner, buttons, etc.
+- **Radio dot** follows the accent in ALL modes (light/dark/cool) — the dark/cool white-dot override
+  was removed.
+- **Dead code removed:** `fillClientEngagements`, `showGifLoadingModal` (rollGif/OAI_GIFS kept for the
+  surprise button).
+- **Popup:** "Report a bug" hidden (HTML-commented, restore later); "Email the developer" copies
+  q.hoang@connorgp.com to clipboard (+`clipboardWrite` perm); "Leave a review" awaiting CWS URL;
+  "Download example" (example.xlsx) added above "Download template".
+- **Audit — still open (user decision):** permissions could narrow `tabs`→`activeTab` and drop
+  `clipboardWrite` (user unsure, left as-is); Google Fonts intentionally kept loading REMOTELY.
+- No remote code, no localStorage, no external data calls; esc() applied to user data in innerHTML.
+
+## SESSION STATE — session 10 (gif registry + theme finalisation)
+
+### Color themes (final)
+COLOR_OPTIONS (appearance.js) and THEME_ACCENTS (content.js) — keys MUST stay in sync:
+- `slate`  "Netsuite Slate (default)" #44536B / #303d50
+- `nam`    "Nam Blue"    #0166B1 / #014E86
+- `sias`   "Sias Violet" #833AB4 / #6B2E93   (dropdown order: after Nam, before Wilson)
+- `wilson` "Wilson Orange" #F77737 / #DD5E1E
+- `coe`    "COE Green"   #075E54 / #054A42
+Accent flows via CSS var `--oai-accent[-dark]/-soft` (content.css) + `:root{…}` emitted by
+buildThemeCSS. Panel header is accent in ALL modes; radio dot follows accent in ALL modes.
+Note: white text sits on the accent (header/primary buttons) — fine for these five.
+
+### Gif registry ("surprise" button)
+- **`gifs.js`** is a NEW content script (manifest isolated entry, loaded BEFORE content.js):
+  `js: ["lib/xlsx.full.min.js", "gifs.js", "content.js"]`. It sets `window.OAI_GIFS`, a list of
+  `{ url, alt, chance? }` loaded from the emoji.gg CDN (remote images — not remote code, MV3-ok).
+- **Probabilities:** pinned entries use their `chance`; unpinned split the leftover evenly and the
+  total is normalised to 100% at roll time in `rollGif()`. Adding more gifs later "just works".
+  Currently pinned: sneakycat 5, Scubbacat 1, shocked 1, Doggorun 2; the other 5 share ~18.2% each.
+- `content.js` has an inline `OAI_GIFS_FALLBACK` (same list) used ONLY if `window.OAI_GIFS` is
+  missing, so the button never dead-ends. gifs.js is the editable source of truth.
+- Surprise handler: hides the button on click, swaps the completion-modal body to the gif + its
+  effective % ("this gif had a N% chance…"), image via the direct CDN URL.
+- REMINDER: adding gifs.js to the manifest requires a full EXTENSION RELOAD (not just page refresh)
+  before it injects.
+
+### Verified live this session (via Claude-in-Chrome)
+- OpenAir page CSP does NOT block `chrome-extension:` images, `data:` images, or emoji.gg CDN images
+  (tested with securitypolicyviolation listener — no violations). So gif rendering is not a CSP issue.
+- The earlier broken-gif was the assets/chrome-extension path on a stale content script; remote CDN
+  URLs avoid `chrome.runtime.getURL` entirely and render regardless of extension-context state.
+
+### Cross-month status (unchanged, still gated)
+`CROSS_MONTH_ENABLED = false`. Detection still shows the warning banner ("Only the current month
+will be filled, switch to the other month and run again"); the auto-navigation
+(`clickNextMonthLink`/`waitForTimesheetGrid`) is suppressed. Those helpers remain in code for when
+the feature is re-enabled. OPEN PRODUCT QUESTION (see session 10 chat): auto Save+navigate+refill
+both months vs. just instruct the user to switch months and re-run.

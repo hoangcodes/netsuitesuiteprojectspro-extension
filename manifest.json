@@ -3,20 +3,42 @@
   "name": "OpenAir Timesheet Importer",
   "version": "1.0.0",
   "description": "Drag-and-drop your weekly Excel timesheet directly into OpenAir.",
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "OpenAir Timesheet Importer",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["tabs", "storage", "clipboardWrite"],
   "host_permissions": [
     "https://connor-group.app.netsuitesuiteprojectspro.com/*"
   ],
   "content_scripts": [
     {
       "matches": ["https://connor-group.app.netsuitesuiteprojectspro.com/*"],
-      "js": ["lib/xlsx.full.min.js", "content.js"],
+      "js": ["page-helper.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://connor-group.app.netsuitesuiteprojectspro.com/*"],
+      "js": ["lib/xlsx.full.min.js", "gifs.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
     }
   ],
-  "icons": {
-    "16": "icons/icon16.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
-  }
+  "web_accessible_resources": [
+    {
+      "resources": ["template.xlsx", "example.xlsx", "assets/*"],
+      "matches": ["https://connor-group.app.netsuitesuiteprojectspro.com/*"]
+    }
+  ]
 }
