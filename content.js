@@ -28,7 +28,6 @@
 
   var _themeMode  = 'light';
   var _themeColor = 'slate';
-  var _hideSurprise = false; // "Preferences > don't show surprise button" (chrome.storage.sync)
 
   var THEME_ACCENTS = {
     slate: { hex: '#44536B', dark: '#303d50' },
@@ -121,7 +120,6 @@
       '.oai-sheet-item:hover{background:' + surfAlt + '!important}',
       // Completion modal + audit log (dark/cool need light, contrasting text)
       '.oai-completion-msg{color:' + t1 + '!important}',
-      '.oai-gif-chance,.oai-gif-reward{color:' + t2 + '!important}',
       '.oai-audit{border-color:' + bdr + '!important}',
       '.oai-audit-title{color:' + t1 + '!important}',
       '.oai-audit-summary{color:' + t3 + '!important}',
@@ -147,14 +145,12 @@
   }
 
   // Read theme on content script load and react to future changes
-  chrome.storage.sync.get(['oai_theme_color', 'oai_theme_mode', 'oai_hide_surprise'], function (prefs) {
+  chrome.storage.sync.get(['oai_theme_color', 'oai_theme_mode'], function (prefs) {
     applyContentTheme(prefs.oai_theme_color, prefs.oai_theme_mode);
-    _hideSurprise = !!prefs.oai_hide_surprise;
   });
 
   chrome.storage.onChanged.addListener(function (changes, area) {
     if (area !== 'sync') return;
-    if (changes.oai_hide_surprise) _hideSurprise = !!changes.oai_hide_surprise.newValue;
     var color = changes.oai_theme_color ? changes.oai_theme_color.newValue : _themeColor;
     var mode  = changes.oai_theme_mode  ? changes.oai_theme_mode.newValue  : _themeMode;
     applyContentTheme(color, mode);
@@ -949,7 +945,7 @@
   }
 
   // Completion modal. `results` = { success, failed:[{day,client,reason}], skipped }.
-  // The Audit Log only appears when something failed. 'surprise' rolls an emote in place.
+  // The Audit Log only appears when something failed.
   function showCompletionModal(results) {
     return new Promise(function (resolve) {
       var failed = (results && results.failed) ? results.failed : [];
@@ -992,7 +988,6 @@
           auditHtml +
         '</div>' +
         '<div class="oai-conf-actions">' +
-          (_hideSurprise ? '' : '<button class="oai-btn oai-btn--secondary" id="oai-surprise">surprise</button>') +
           '<div class="oai-conf-buttons">' +
             '<button class="oai-btn oai-btn--primary" id="oai-done-close">Close</button>' +
           '</div>' +
@@ -1000,110 +995,14 @@
       overlay.appendChild(modal);
       document.body.appendChild(overlay);
 
-      // Warm the emote cache in the background so the surprise reveal is quick.
-      if (!_hideSurprise) {
-        ((window.OAI_GIFS && window.OAI_GIFS.length) ? window.OAI_GIFS : OAI_GIFS_FALLBACK)
-          .forEach(function (g) { if (g && g.url) { var pre = new Image(); pre.src = g.url; } });
-      }
-
       modal.querySelector('#oai-done-close').addEventListener('click', function () {
         if (overlay.parentNode) document.body.removeChild(overlay);
         resolve();
-      });
-
-      // 'surprise' - roll a gif and show it (with its odds); the page's CSP allows
-      // chrome-extension: images, so a direct URL renders fine. Hide the button after use.
-      var surpriseBtn = modal.querySelector('#oai-surprise');
-      if (surpriseBtn) surpriseBtn.addEventListener('click', function () {
-        var picked = rollGif();
-        if (!picked) return;
-        var body = modal.querySelector('.oai-completion-body');
-        var btn  = modal.querySelector('#oai-surprise');
-        if (btn) btn.style.display = 'none';
-        var title = modal.querySelector('.oai-conf-title');
-        if (title) title.textContent = 'Surprise'; // header becomes "Surprise" for the gif view
-
-        // Show a spinner while the gif loads, then reveal the gif + subtext AT THE SAME TIME
-        // (revealing the subtext first would spoil the surprise).
-        body.innerHTML = '<div class="oai-gif-loading"><span class="oai-spinner oai-spinner--lg"></span></div>';
-
-        var revealed = false;
-        function reveal() {
-          if (revealed) return; revealed = true;
-          body.innerHTML =
-            '<img src="' + esc(picked.url) + '" class="oai-gif-img" alt="' + esc(picked.alt) + '">' +
-            '<div class="oai-gif-chance">this gif had a <strong>' + picked.chance + '%</strong> chance of appearing!</div>' +
-            (picked.reward ? '<div class="oai-gif-reward">' + esc(picked.reward) + '</div>' : '');
-        }
-
-        var pre = new Image();
-        pre.onload  = reveal;   // image is cached now, so the reveal renders it instantly
-        pre.onerror = reveal;   // still reveal (rather than spin forever) if it fails to load
-        pre.src = picked.url;
-        if (pre.complete) reveal();               // already cached from the preload
-        setTimeout(reveal, 4000);                  // safety net
       });
     });
   }
 
   // ── Loading modal ──────────────────────────────────────────────────────────
-
-  // gifs.js (a separate content-script file) is the editable source for the emote list
-  // via window.OAI_GIFS. This inline copy is ONLY used as a fallback if that global didn't
-  // load, so the surprise button never dead-ends. Edit gifs.js to change the list.
-  var OAI_GIFS_FALLBACK = [
-    { url: 'https://cdn3.emoji.gg/emojis/366752-cat.gif',                   alt: 'cat' },
-    { url: 'https://cdn3.emoji.gg/emojis/666930-catrun.gif',               alt: 'CatRun' },
-    { url: 'https://cdn3.emoji.gg/emojis/257763-dancingcat.gif',           alt: 'DancingCat' },
-    { url: 'https://cdn3.emoji.gg/emojis/656926-wiggletailcat.gif',        alt: 'wiggletailcat' },
-    { url: 'https://cdn3.emoji.gg/emojis/79967-happy-shiba-tailwag.gif',   alt: 'happy_shiba_tailwag' },
-    { url: 'https://cdn3.emoji.gg/emojis/679076-dogkeyboard.gif',          alt: 'DogKeyboard' },
-    { url: 'https://cdn3.emoji.gg/emojis/996211-pikachu.gif',              alt: 'pikachu' },
-    { url: 'https://cdn3.emoji.gg/emojis/700719-hellokittysleighride.gif', alt: 'HelloKittySleighRide' },
-    { url: 'https://cdn3.emoji.gg/emojis/281357-christmashellokitty.gif',  alt: 'ChristmasHelloKitty' },
-    { url: 'https://cdn3.emoji.gg/emojis/747946-yoshi.gif',                alt: 'Yoshi' },
-    { url: 'https://cdn3.emoji.gg/emojis/136245-sneakycat.gif',            alt: 'sneakycat', chance: 5 },
-    { url: 'https://cdn3.emoji.gg/emojis/3516-scubbacat.gif',              alt: 'Scubbacat', chance: 1 },
-    { url: 'https://cdn3.emoji.gg/emojis/623251-shocked.gif',              alt: 'shocked',   chance: 1 },
-    { url: 'https://cdn3.emoji.gg/emojis/29323-doggorun.gif',              alt: 'Doggorun',  chance: 2 },
-    { url: 'https://cdn3.emoji.gg/emojis/8196-yoshi-bonk.gif',             alt: 'yoshi_bonk', chance: 1 },
-    { url: 'https://cdn3.emoji.gg/emojis/13344-cat-wtf.gif',               alt: 'cat_wtf', chance: 0.5, reward: 'please screenshot this to Q, he owes you a coffee' },
-  ];
-
-  // Build the weight for every gif. Entries with a pinned `chance` keep it; entries WITHOUT
-  // one are RANDOMLY assigned a share of the leftover budget so that the grand total is
-  // exactly 100%. Computed once per session (memoised) so the displayed odds stay stable.
-  var _gifWeights = null, _gifWeightsLen = -1;
-  function computeGifWeights(list) {
-    var pinnedSum = 0, unpinned = [];
-    list.forEach(function (g, i) { if (typeof g.chance === 'number') pinnedSum += g.chance; else unpinned.push(i); });
-    var budget  = Math.max(0, 100 - pinnedSum);
-    var weights = list.map(function (g) { return typeof g.chance === 'number' ? g.chance : 0; });
-    if (unpinned.length) {
-      var rand = unpinned.map(function () { return Math.random(); });
-      var rsum = rand.reduce(function (a, b) { return a + b; }, 0) || 1;
-      unpinned.forEach(function (idx, k) { weights[idx] = budget * rand[k] / rsum; }); // random share of leftover
-    }
-    return weights;
-  }
-
-  // Roll one gif from window.OAI_GIFS (gifs.js; OAI_GIFS_FALLBACK if it didn't load).
-  // Returns { url, alt, chance, reward } — chance is the effective % (up to 1 decimal).
-  function rollGif() {
-    var list = ((window.OAI_GIFS && window.OAI_GIFS.length) ? window.OAI_GIFS : OAI_GIFS_FALLBACK).slice();
-    if (!list.length) return null;
-    if (!_gifWeights || _gifWeightsLen !== list.length) { _gifWeights = computeGifWeights(list); _gifWeightsLen = list.length; }
-    var weights = _gifWeights;
-    var total = weights.reduce(function (a, w) { return a + w; }, 0) || 1;
-    var roll = Math.random() * total, cum = 0, idx = 0;
-    for (var i = 0; i < weights.length; i++) { cum += weights[i]; if (roll < cum) { idx = i; break; } }
-    return {
-      url:    list[idx].url,
-      alt:    list[idx].alt || '',
-      chance: +(weights[idx] / total * 100).toFixed(1),
-      reward: list[idx].reward || ''
-    };
-  }
 
   function showLoadingModal(message) {
     var overlay = document.createElement('div');

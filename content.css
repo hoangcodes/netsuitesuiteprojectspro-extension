@@ -1,7 +1,6 @@
 /* content.css -- OpenAir Timesheet Importer
    All selectors prefixed oai- to avoid collisions with OpenAir styles. */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 /* ─── Panel ───────────────────────────────────────────────────────────────── */
 
@@ -889,72 +888,6 @@
 
 .oai-conf-step-hint--bottom {
   align-self: flex-end;
-}
-
-/* ─── Gif loading modal ─────────────────────────────────────────────────── */
-
-.oai-modal--gif-loading {
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
-  border: 1px solid #e2e8f0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 32px 28px 24px;
-  min-width: 260px;
-  max-width: 320px;
-  text-align: center;
-}
-
-.oai-gif-img {
-  width: 120px;
-  height: 120px;
-  object-fit: contain;
-  border-radius: 8px;
-}
-
-/* Surprise: spinner box shown while the gif loads (matches the gif size so the modal
-   doesn't resize when the gif reveals). */
-.oai-gif-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 120px;
-  height: 120px;
-}
-
-.oai-gif-label {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-  font-size: 15px;
-  font-weight: 600;
-  color: #374151;
-  letter-spacing: 0.01em;
-}
-
-.oai-gif-chance,
-.oai-gif-reward {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-  font-size: 12px;
-  color: #64748b;
-}
-
-.oai-gif-source {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-  font-size: 10px;
-  color: #94a3b8;
-  margin-top: 2px;
-}
-
-.oai-gif-source a {
-  color: #94a3b8;
-  text-decoration: none;
-}
-
-.oai-gif-source a:hover {
-  text-decoration: underline;
 }
 
 /* ─── Task cell loading state ────────────────────────────────────────────── */

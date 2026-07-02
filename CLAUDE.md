@@ -399,3 +399,70 @@ will be filled, switch to the other month and run again"); the auto-navigation
 (`clickNextMonthLink`/`waitForTimesheetGrid`) is suppressed. Those helpers remain in code for when
 the feature is re-enabled. OPEN PRODUCT QUESTION (see session 10 chat): auto Save+navigate+refill
 both months vs. just instruct the user to switch months and re-run.
+
+## SESSION STATE — session 11 (Chrome Web Store prep + surprise feature removed)
+
+Focus: getting the extension through Chrome Web Store review (it was rejected once for generic
+"Program Policies" — most likely single-purpose + remote content from the surprise gifs).
+
+### Permissions trimmed (manifest.json)
+- `permissions` is now `["activeTab", "storage"]` — DROPPED `clipboardWrite`, and narrowed `tabs`→`activeTab`.
+  - The "Email the developer" copy button now has a `document.execCommand('copy')` fallback so it works
+    without `clipboardWrite` (see popup.js).
+  - `activeTab` covers the popup's OpenAir-detection URL read + messaging (both happen after the user
+    opens the popup); theme also propagates via `chrome.storage.onChanged`, so nothing relies on `tabs`.
+- `web_accessible_resources` resources = `["template.xlsx", "example.xlsx"]` (dropped `assets/*`).
+
+### Remote resources removed (was the "remote code" flag)
+- Google Fonts load REMOVED: the `<link>`s in popup/popup.html and the `@import` in content.css are gone.
+  UI now uses the system-font fallback stack. (Couldn't bundle Inter — can't fetch font binaries here.)
+
+### Surprise / GIF feature FULLY REMOVED
+Removed everywhere for the store build (single-purpose + remote-content risk):
+- content.js: `rollGif`, `computeGifWeights`, `OAI_GIFS_FALLBACK`, the surprise button + click handler +
+  emote preload in `showCompletionModal`, and all `_hideSurprise` / `oai_hide_surprise` plumbing.
+- `gifs.js`: emptied to a one-line comment (mount blocks deletion) and DE-REGISTERED from the manifest
+  content_scripts (js is now `["lib/xlsx.full.min.js", "content.js"]`).
+- popup: the whole **Preferences** section + `#oai-surprise-pref` toggle removed (html + js).
+- CSS: gif styles removed from content.css; `.oai-pref-row`/`.oai-switch` removed from popup.css.
+- Completion modal is now just: "Complete" header, checkmark, "thank you for using the extension",
+  the Audit Log (only on failures), and a **Close** button.
+- **Full rebuild recipe saved at `docs/SURPRISE_FEATURE_REBUILD.md`** (registry format, the 16-emote
+  list + chances + the reward, the random-weights-to-100% logic, the spinner→reveal handler, popup
+  toggle, CSS, manifest wiring, and CSP/stale-context gotchas). Restore from there if wanted (unlisted
+  build only, ideally with gifs bundled locally).
+
+### Color themes (final, session-10/11)
+COLOR_OPTIONS (appearance.js) + THEME_ACCENTS (content.js), keys MUST stay in sync:
+- `slate` "Netsuite Slate (default)" #44536B / #303d50
+- `nam`   "Nam Blue"    #1B3D82 / #143061
+- `becky` "Becky Maroon" #550000 / #3D0000
+- `jenna` "Jenna Purple" #6C3BAA / #572E89
+- `omkar` "Omkar Gold"  #DAA520 / #B8860B
+- `alec`  "Alec Green"  #40826D / #336654
+Accent flows via `--oai-accent[-dark]/-soft`. NEW: `--oai-on-accent` (readableOn() in content.js)
+auto-picks dark vs white text on the header/primary buttons so light accents (Omkar Gold) stay legible.
+
+### Branding assets
+- Icons (icons/icon16|48|128.png) regenerated: dropzone motif (slate header, white body, dashed box,
+  upload arrow) with a slate frame so it reads on white. Generated via Pillow (supersample→LANCZOS).
+- Store screenshots in `docs/store/` = 1280x800, 24-bit RGB (NO alpha), composited on a light bg with a
+  soft shadow. The two modal shots (02-review-data, 03-review-tasks) have the Client:Engagement + Task
+  columns lightly Gaussian-blurred to hide real client names. `docs/screenshots/` holds the raw originals.
+- manifest `description`: "Drag-and-drop your weekly Excel timesheet directly into Netsuite's SuiteProjects Pro (OpenAir)."
+- Download filenames: template → "Timesheet template v1.2.xlsx", example → "7.2026 Example.xlsx". The
+  bottom-right PANEL download fetches the file as a blob first (page context ignores the `download`
+  filename for cross-origin chrome-extension: URLs, so blob keeps the tracking name).
+
+### README
+Rewrote/aligned; removed all surprise references. Screenshots referenced from `docs/screenshots/`.
+
+### ⚠️ Mount blocks file DELETION (rm "Operation not permitted"); in-place overwrite works.
+Before zipping for the store, the user must delete by hand: `gifs.js`, the `assets/` folder,
+`icons/_preview256.png`, and (optionally) the now-unused `docs/**/05-surprise.png`.
+
+### CWS submission facts
+- Private/Unlisted STILL require full review — visibility ≠ skipping review.
+- Commented-out code is still scanned/visible — remove, don't comment.
+- Privacy-tab justifications drafted in chat: single purpose, activeTab, storage, host permission
+  (remote-code no longer applies now that fonts + gifs are gone).

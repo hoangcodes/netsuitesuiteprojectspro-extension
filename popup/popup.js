@@ -66,28 +66,23 @@
       copyBtn.addEventListener('click', function () {
         var span = copyBtn.querySelector('span');
         var orig = span ? span.textContent : '';
-        var restore = function () { if (span) setTimeout(function () { span.textContent = orig; }, 1500); };
-        navigator.clipboard.writeText('q.hoang@connorgp.com').then(function () {
-          if (span) span.textContent = 'Email copied!';
-          restore();
-        }).catch(function () {
-          if (span) span.textContent = 'Copy failed';
-          restore();
-        });
-      });
-    }
-
-    // Preferences: "don't show surprise button" toggle (persisted to chrome.storage.sync;
-    // the content script reads oai_hide_surprise and omits the button on the completion modal)
-    var surprisePref = document.getElementById('oai-surprise-pref');
-    if (surprisePref) {
-      // "surprise" ON = show the button; default ON. Stored as oai_hide_surprise (the inverse),
-      // which the content script reads to hide the button when the user turns this off.
-      chrome.storage.sync.get(['oai_hide_surprise'], function (prefs) {
-        surprisePref.checked = !prefs.oai_hide_surprise; // unset -> ON by default
-      });
-      surprisePref.addEventListener('change', function () {
-        chrome.storage.sync.set({ oai_hide_surprise: !surprisePref.checked });
+        var email = 'q.hoang@connorgp.com';
+        var done = function (ok) {
+          if (span) { span.textContent = ok ? 'Email copied!' : 'Copy failed'; setTimeout(function () { span.textContent = orig; }, 1500); }
+        };
+        // Fallback copy (works without the clipboardWrite permission, on a user gesture).
+        var fallback = function () {
+          try {
+            var ta = document.createElement('textarea');
+            ta.value = email; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.focus(); ta.select();
+            var ok = document.execCommand('copy');
+            document.body.removeChild(ta); done(ok);
+          } catch (e) { done(false); }
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(email).then(function () { done(true); }).catch(fallback);
+        } else { fallback(); }
       });
     }
 

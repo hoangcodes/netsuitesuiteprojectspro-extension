@@ -17,7 +17,7 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["tabs", "storage", "clipboardWrite"],
+  "permissions": ["activeTab", "storage"],
   "host_permissions": [
     "https://connor-group.app.netsuitesuiteprojectspro.com/*"
   ],
@@ -30,14 +30,14 @@
     },
     {
       "matches": ["https://connor-group.app.netsuitesuiteprojectspro.com/*"],
-      "js": ["lib/xlsx.full.min.js", "gifs.js", "content.js"],
+      "js": ["lib/xlsx.full.min.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["template.xlsx", "example.xlsx", "assets/*"],
+      "resources": ["template.xlsx", "example.xlsx"],
       "matches": ["https://connor-group.app.netsuitesuiteprojectspro.com/*"]
     }
   ]
