@@ -551,6 +551,7 @@
 
 /* Note indicators */
 .oai-conf-ind {
+  pointer-events: none; /* let the cell's notes tooltip show when hovering the icon */
   font-size: 13px;
   font-weight: 700;
   display: inline-flex;
@@ -563,6 +564,9 @@
 
 .oai-conf-ind--yes { color: #16a34a; }
 .oai-conf-ind--no  { color: #dc2626; }
+
+/* Read-only "left blank" placeholder in the Step 2 Client:Engagement cell (muted, italic). */
+.oai-conf-ce-blank { opacity: 0.55; font-style: italic; }
 
 /* Dropdowns */
 .oai-conf-sel {
@@ -583,6 +587,19 @@
 
 .oai-conf-sel:focus {
   border-color: var(--oai-accent, #44536B);
+}
+
+/* Read-only Task cell in the "Fill Time & Notes Only" grid: a real <select> (so the row height
+   matches the Step 1/2 grids exactly) styled to read as plain text — no border, no arrow, inert. */
+.oai-conf-sel.oai-conf-sel--readonly {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: #475569;
+  cursor: default;
+  pointer-events: none;
+  padding-right: 6px;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 /* Plain text fallback cells */
@@ -755,6 +772,14 @@
   margin-left: auto; /* keep buttons right-aligned whether or not a banner is present */
 }
 
+/* Submit button on "Step 1: Review Data" is HIDDEN for now — delete the `display: none`
+   line to bring it back (the button markup + its handler in content.js are left intact).
+   The margin keeps it from being misclicked next to "Step 2: Tasks" when re-enabled. */
+#oai-submit {
+  display: none;
+  margin-left: 16px;
+}
+
 /* ─── Cross-month warning ─────────────────────────────────────────────────── */
 
 .oai-conf-cross-month-warning {
@@ -888,6 +913,72 @@
 
 .oai-conf-step-hint--bottom {
   align-self: flex-end;
+}
+
+/* ─── Gif loading modal ─────────────────────────────────────────────────── */
+
+.oai-modal--gif-loading {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 28px 24px;
+  min-width: 260px;
+  max-width: 320px;
+  text-align: center;
+}
+
+.oai-gif-img {
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+/* Surprise: spinner box shown while the gif loads (matches the gif size so the modal
+   doesn't resize when the gif reveals). */
+.oai-gif-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 120px;
+  height: 120px;
+}
+
+.oai-gif-label {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: #374151;
+  letter-spacing: 0.01em;
+}
+
+.oai-gif-chance,
+.oai-gif-reward {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.oai-gif-source {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  font-size: 10px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.oai-gif-source a {
+  color: #94a3b8;
+  text-decoration: none;
+}
+
+.oai-gif-source a:hover {
+  text-decoration: underline;
 }
 
 /* ─── Task cell loading state ────────────────────────────────────────────── */

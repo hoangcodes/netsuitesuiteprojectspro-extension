@@ -30,14 +30,14 @@
     },
     {
       "matches": ["https://connor-group.app.netsuitesuiteprojectspro.com/*"],
-      "js": ["lib/xlsx.full.min.js", "content.js"],
+      "js": ["lib/xlsx.full.min.js", "gifs.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["template.xlsx", "example.xlsx"],
+      "resources": ["template.xlsx", "example.xlsx", "assets/*"],
       "matches": ["https://connor-group.app.netsuitesuiteprojectspro.com/*"]
     }
   ]

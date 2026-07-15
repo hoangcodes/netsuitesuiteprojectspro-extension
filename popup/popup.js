@@ -60,29 +60,61 @@
       a.click();
     });
 
-    // Email the developer -> copy address to clipboard
-    var copyBtn = document.getElementById('copyEmailBtn');
-    if (copyBtn) {
-      copyBtn.addEventListener('click', function () {
-        var span = copyBtn.querySelector('span');
-        var orig = span ? span.textContent : '';
-        var email = 'q.hoang@connorgp.com';
-        var done = function (ok) {
-          if (span) { span.textContent = ok ? 'Email copied!' : 'Copy failed'; setTimeout(function () { span.textContent = orig; }, 1500); }
-        };
-        // Fallback copy (works without the clipboardWrite permission, on a user gesture).
-        var fallback = function () {
-          try {
-            var ta = document.createElement('textarea');
-            ta.value = email; ta.style.position = 'fixed'; ta.style.opacity = '0';
-            document.body.appendChild(ta); ta.focus(); ta.select();
-            var ok = document.execCommand('copy');
-            document.body.removeChild(ta); done(ok);
-          } catch (e) { done(false); }
-        };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(email).then(function () { done(true); }).catch(fallback);
-        } else { fallback(); }
+    // Preferences: "don't show surprise button" toggle (persisted to chrome.storage.sync;
+    // the content script reads oai_hide_surprise and omits the button on the completion modal)
+    var surprisePref = document.getElementById('oai-surprise-pref');
+    if (surprisePref) {
+      // "surprise" ON = show the button; default ON. Stored as oai_hide_surprise (the inverse),
+      // which the content script reads to hide the button when the user turns this off.
+      chrome.storage.sync.get(['oai_hide_surprise'], function (prefs) {
+        surprisePref.checked = !prefs.oai_hide_surprise; // unset -> ON by default
+      });
+      surprisePref.addEventListener('change', function () {
+        chrome.storage.sync.set({ oai_hide_surprise: !surprisePref.checked });
+      });
+    }
+
+    // Preferences: "auto default client:engagement and task" (default ON). When OFF, the
+    // content script skips auto-matching and leaves every dropdown on "- leave blank for import -".
+    var storedAutoDefault = true; // the user's real "auto-match" choice, remembered while disabled
+    var autoDefaultPref = document.getElementById('oai-autodefault-pref');
+    if (autoDefaultPref) {
+      chrome.storage.sync.get(['oai_auto_default'], function (prefs) {
+        storedAutoDefault = prefs.oai_auto_default !== false; // unset -> ON by default
+        autoDefaultPref.checked = storedAutoDefault;
+        syncAutofillEnabled();
+      });
+      autoDefaultPref.addEventListener('change', function () {
+        storedAutoDefault = autoDefaultPref.checked;
+        chrome.storage.sync.set({ oai_auto_default: autoDefaultPref.checked });
+      });
+    }
+
+    // Preferences: "just fill in time and notes" (default OFF). When ON, the content script
+    // shows a read-only review modal and writes ONLY hours + notes, leaving Client:Engagement
+    // and Task blank on the timesheet.
+    var timeNotesPref = document.getElementById('oai-timenotes-pref');
+    // "Autofill Client and Task" only matters in the normal flow. When "Time and Notes only"
+    // is ON, Client/Task are left blank, so nothing is autofilled -> grey the nested toggle out.
+    function syncAutofillEnabled() {
+      if (!autoDefaultPref) return;
+      var off = !!(timeNotesPref && timeNotesPref.checked);
+      autoDefaultPref.disabled = off;
+      // Show it OFF while disabled (auto-match cannot run in fill-time-and-notes-only mode); restore
+      // the remembered choice when re-enabled. Setting .checked programmatically does NOT fire the
+      // change handler, so the stored oai_auto_default preference is preserved.
+      autoDefaultPref.checked = off ? false : storedAutoDefault;
+      var row = autoDefaultPref.closest('.oai-pref-row');
+      if (row) row.classList.toggle('oai-pref-row--disabled', off);
+    }
+    if (timeNotesPref) {
+      chrome.storage.sync.get(['oai_fill_time_notes_only'], function (prefs) {
+        timeNotesPref.checked = !!prefs.oai_fill_time_notes_only; // unset -> OFF by default
+        syncAutofillEnabled();
+      });
+      timeNotesPref.addEventListener('change', function () {
+        chrome.storage.sync.set({ oai_fill_time_notes_only: timeNotesPref.checked });
+        syncAutofillEnabled();
       });
     }
 

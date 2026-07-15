@@ -466,3 +466,111 @@ Before zipping for the store, the user must delete by hand: `gifs.js`, the `asse
 - Commented-out code is still scanned/visible — remove, don't comment.
 - Privacy-tab justifications drafted in chat: single purpose, activeTab, storage, host permission
   (remote-code no longer applies now that fonts + gifs are gone).
+
+
+## SESSION STATE — session 12 (surprise RESTORED, prefs, matching, no-consolidation, UI polish)
+
+Big session. The user pulled the APPROVED .crx (id `ageeabfdmemlbmgdgeffgknffiapenbl`) and found it still
+contained the surprise/gif feature that session 11 had removed — so we RESTORED the feature and then
+made many product/UX changes. All edits validated with `node --check`. Files were edited via
+bash/python (Edit/Write still truncate here). NOTE: the bash MOUNT can serve a STALE copy of files the
+USER edited outside the session (hit this with gifs.js) — always confirm host state via the file tools.
+
+### Surprise / GIF feature RESTORED (reverses session 11)
+- `gifs.js` re-populated (`window.OAI_GIFS`), loaded in manifest content_scripts:
+  `["lib/xlsx.full.min.js", "gifs.js", "content.js"]`; `web_accessible_resources` re-added `assets/*`.
+- content.js surprise button + `rollGif`/`computeGifWeights`/`OAI_GIFS_FALLBACK` restored; popup has a
+  "Surprise" preference toggle (`oai_hide_surprise`, default ON=show).
+- Manifest kept the session-11 policy hardening: permissions `["activeTab","storage"]`, NO remote fonts,
+  and we did NOT add the store-injected `update_url` (must never be in an uploaded manifest).
+- **gifs.js `chance`**: `computeGifWeights` uses each entry's pinned `chance`; unpinned entries get a
+  RANDOM share of the leftover budget; `rollGif` normalises to 100% at roll time (so displayed % =
+  chance/total*100). User rebalanced values so ALL entries are pinned and sum to exactly 100.
+
+### Preferences widget (popup) — 3 toggles, order + wording final
+```
+Preferences
+  Fill Time/Notes Only        [oai_fill_time_notes_only, default OFF]
+      Auto-match Client & Task  [oai_auto_default, default ON]   <- indented sub-option (.oai-pref-row--sub)
+  Surprise                    [oai_hide_surprise, default ON=show]
+```
+- "Auto-match" is nested under "Fill Time/Notes Only". When the parent is ON it is DISABLED + shown OFF
+  (greyed via `.oai-pref-row--disabled`); popup.js remembers the real choice (`storedAutoDefault`) and
+  restores it when the parent goes OFF (programmatic `.checked` does not fire change -> storage intact).
+- content.js reads both prefs on load + `chrome.storage.onChanged`: `_autoDefault`, `_fillTimeNotesOnly`.
+
+### Auto-match ("Auto default") gating + threshold fix
+- When `_autoDefault` is false: `resolveRows` returns null match, `resolveTaskForRow` returns null, and
+  the Phase-1 "Refresh engagement" leaves blank -> everything shows "- leave blank for import -".
+- **Single shared threshold `MATCH_MIN = 0.85`** (top of content.js) for BOTH Client:Engagement AND Task
+  (both score Excel text vs the LIVE dropdown options via the same `scoreMatch`). Fixes the reported
+  "nearest alphabetical" false match: shared-prefix engagements (e.g. many "Connor Group : X") used to
+  score ~0.5 via Dice and latch onto the alphabetically-first sibling at the old 0.4 bar. Now only
+  name-present matches (exact/prefix/all-words/substring, all >=0.85) auto-fill; else blank. Verified
+  with a Node harness against real data.
+
+### Blank Client:Engagement AND blank Task now STAY BLANK (removed Open Code Pending defaults)
+- `commitPhase1` no longer substitutes "Connor Group : Open Code Pending" for a blank C:E; blank is
+  committed as blank. Row creation still works via `exposeAndFillClientEngagement`'s blank path (commit
+  a throwaway engagement — now PREFERS "Open Code Pending", else first option — then reset that row's
+  C:E to blank).
+- `fillTasksAndHours` no longer defaults an unmatched task to the row's Open Code Pending task; blank
+  task stays blank. `findOpenCodePendingTask` is now UNUSED dead code (left in place).
+- ⚠️ UNVERIFIED live: whether OpenAir keeps the row + hour inputs AFTER C:E is reset to blank. If hours
+  don't stick on blank rows, reorder to fill hours BEFORE resetting C:E to blank. Also OpenAir may not
+  let a row save with no engagement (user's side).
+
+### NO CONSOLIDATION — grid mirrors the Excel table 1:1 (important fix)
+- Root cause of "4 Cerebras rows became 3 / wrong hours": `groupKey` was `client + task`, so two Excel
+  rows with the SAME Client+Task merged and their day values overwrote each other. `groupKey` is now
+  UNIQUE per Excel row: `client + '\x00' + task + '\x00#' + r`. Every Excel data row = one grid row =
+  one OpenAir row; no merging anywhere (Step 1, Step 2, time+notes). Verified on the user's 7-12-2026
+  sheet (7 rows incl. two identical "Cerebras / NS Admin", correct per-row days).
+
+### "Fill Time & Notes Only" mode (submitDirect's sibling)
+- `buildTimeNotesGrid` + `showTimeNotesOnly`: read-only review modal (Client:Engagement + Task shown as
+  text from Excel — Task rendered as an INERT `<select class="oai-conf-sel oai-conf-sel--readonly">` so
+  the row height matches the Step 1/2 grids by construction; styled borderless/transparent/no-arrow/
+  pointer-events:none to read as plain text, with a `.oai-conf-sel.oai-conf-sel--readonly !important`
+  rule so the dark/cool theme can't turn it back into a bordered field).
+- On Fill: handleFile builds one BLANK-C:E row per Excel grouping via `exposeAndFillClientEngagement`,
+  then `fillTimesheet` writes ONLY hours + notes; reuses `showCompletionModal`. Info icon REMOVED from
+  this modal; cross-month warning renders at footer level (inside `.oai-conf-actions`).
+- Step 2 Client:Engagement cell now reflects the STEP-1 choice: matched label, or a muted italic
+  "- leave blank for import -" (`.oai-conf-ce-blank`) when left blank — NEVER the raw Excel client text.
+- Blank-C:E rows are excluded from `waitForTaskOptions` and never show the task loading spinner (no
+  tasks to load) -> the modal opens fast for blank/all-blank sheets.
+
+### Submit button (Phase 1) HIDDEN for now
+- The "Submit >" button + its `commitPhase1(submitDirect)` path are intact but hidden via
+  `#oai-submit { display: none; }` in content.css. Delete that line to bring it back.
+
+### Popup modernisation + footer + Appearance widget
+- Footer: removed the whole Community section + "Email the developer" (and its popup.js clipboard
+  handler). "leave a review" (lowercase) moved to footer LEFT, linked to the CWS listing
+  `https://chromewebstore.google.com/detail/openair-timesheet-importe/ageeabfdmemlbmgdgeffgknffiapenbl`
+  (ID is permanent; slug may change but redirects). Dev label + GitHub grouped on the right.
+- Header brand mark (accent-tinted rounded square), cards `border-radius:14px` + soft shadow,
+  antialiasing, smoother toggle easing. Resources buttons Title Case ("Download Example/Template").
+- Appearance widget (features/appearance/): field label renamed "Color theme" -> "Color Theme"; Slate
+  label dropped its "(default)"; the COLOR picker is now clickable COLOR-CIRCLE SWATCHES (not a
+  dropdown; active swatch gets an accent ring); the MODE picker is HORIZONTAL real radio buttons
+  (Light/Dark/Cool, no "(default)" text). Radio dot is absolute-centred. Dark/Cool: selected radio uses
+  white outline+dot and the ON preference toggle track gets a white outline (so a dark accent like Nam
+  Blue stays visible). Fast custom swatch tooltip (~50ms) replaces the slow native `title`.
+
+### Tooltip fixes (content.js)
+- Notes tooltip shows when hovering the ✓/✗ note icon too (`.oai-conf-ind { pointer-events:none }`).
+- Reliability: `attachTooltip` clears the shared `_tooltipTimer` on mouseenter and skips empty text.
+- **z-index/reopen fix**: the singleton tooltip is `document.body.appendChild(tip)`-ed on every show so
+  it sits ABOVE the current modal overlay (overlay + tooltip share max z-index; on modal REOPEN the
+  fresh overlay was landing after the tooltip and covering it — this broke the header "(i)" info-icon
+  and grid tooltips on the 2nd+ open).
+- Step-instruction text: ", leave as blank" -> ", select - leave blank for import -".
+
+### Still open / to verify live (next session)
+- Blank-C:E row fill (does OpenAir keep the row after the C:E reset-to-blank? see above).
+- Cross-month path still gated (`CROSS_MONTH_ENABLED = false`).
+- Dead code: `findOpenCodePendingTask` (unused now), `fillClientEngagements` (still unused).
+- Re-zip for CWS: surprise/gifs are BACK, so the store listing/justifications differ from session 11
+  (remote gif images from emoji.gg CDN again — not remote code, but note it for review).

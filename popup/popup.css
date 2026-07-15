@@ -56,6 +56,8 @@ body {
   background: var(--bg-page);
   width: 320px;
   min-height: 200px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Popup wrap */
@@ -81,6 +83,18 @@ body {
   display: flex;
   align-items: center;
   gap: 9px;
+}
+
+.header-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  flex-shrink: 0;
 }
 
 .header-title {
@@ -128,17 +142,18 @@ body {
 
 /* Sections layout */
 .sections {
-  padding: 10px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .section-group {
   background: var(--bg-surface);
-  border-radius: 12px;
+  border-radius: 14px;
   border: 1px solid var(--border);
   overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 6px rgba(0, 0, 0, 0.03);
 }
 
 .group-label {
@@ -159,7 +174,7 @@ body {
   border-top: 1px solid var(--divider);
   color: var(--text-3);
   cursor: pointer;
-  transition: background 0.12s;
+  transition: background 0.14s ease, color 0.14s ease;
   text-decoration: none;
   width: 100%;
   background: none;
@@ -192,7 +207,7 @@ body {
 .footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 6px;
   padding: 10px 14px;
   background: var(--bg-surface);
@@ -222,4 +237,108 @@ body {
   color: var(--text-3);
   cursor: default;
   user-select: none;
+}
+
+.footer-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.footer-review {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-3);
+  text-decoration: none;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 11px;
+}
+
+.footer-review:hover {
+  color: var(--text-1);
+  background: var(--divider);
+}
+
+/* Keep the star icon and the label on the same vertical centre-line. */
+.footer-review span,
+.footer-github span { line-height: 1; }
+.footer-review svg,
+.footer-github svg { display: block; flex-shrink: 0; }
+
+/* Preferences: toggle row + switch (selectors are scoped under .oai-pref-row so they
+   out-specify the global `.nav-item span { flex: 1 }` rule and keep the switch sized). */
+.oai-pref-row {
+  cursor: pointer;
+  gap: 10px;
+}
+/* Indented sub-option (Autofill lives under "Time and Notes only"). */
+.oai-pref-row--sub {
+  padding-left: 30px;
+}
+.oai-pref-row--sub > span:first-child {
+  color: var(--text-2);
+}
+/* Greyed out + non-interactive when the parent toggle makes it irrelevant. */
+.oai-pref-row--disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.oai-pref-row > span:first-child {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  flex: 1;
+}
+.oai-pref-row .oai-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.oai-pref-row .oai-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+}
+.oai-pref-row .oai-switch-track {
+  display: inline-block;
+  position: relative;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--border);
+  transition: background 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.oai-pref-row .oai-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.oai-pref-row .oai-switch input:checked + .oai-switch-track {
+  background: var(--accent);
+}
+.oai-pref-row .oai-switch input:checked + .oai-switch-track .oai-switch-thumb {
+  transform: translateX(14px);
+}
+.oai-pref-row .oai-switch input:focus-visible + .oai-switch-track {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* Dark & Cool modes: outline the ON track so a dark accent (e.g. Nam Blue) reads on the dark bg. */
+body.oai-mode-classic-dark .oai-pref-row .oai-switch input:checked + .oai-switch-track,
+body.oai-mode-dark .oai-pref-row .oai-switch input:checked + .oai-switch-track {
+  outline: 1.5px solid rgba(255, 255, 255, 0.7);
+  outline-offset: -1.5px;
 }

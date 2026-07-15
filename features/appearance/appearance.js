@@ -8,8 +8,15 @@ var OAIAppearance = (function () {
   var DEFAULT_COLOR = 'slate';
   var DEFAULT_MODE  = 'light';
 
+  // Fast custom tooltip for the colour swatches (the native title attribute has a ~1s delay).
+  var _swTip = null, _swTipTimer = null;
+  function swatchTipEl() {
+    if (!_swTip) { _swTip = document.createElement('div'); _swTip.className = 'oai-sw-tip'; document.body.appendChild(_swTip); }
+    return _swTip;
+  }
+
   var COLOR_OPTIONS = [
-    { value: 'slate', label: 'Netsuite Slate (default)', hex: '#44536B', dark: '#303d50' },
+    { value: 'slate', label: 'Netsuite Slate', hex: '#44536B', dark: '#303d50' },
     { value: 'nam',   label: 'Nam Blue',                 hex: '#1B3D82', dark: '#143061' },
     { value: 'becky', label: 'Becky Maroon',             hex: '#550000', dark: '#3D0000' },
     { value: 'jenna', label: 'Jenna Purple',             hex: '#6C3BAA', dark: '#572E89' },
@@ -68,51 +75,61 @@ var OAIAppearance = (function () {
   function render(containerEl, currentColor, currentMode) {
     containerEl.innerHTML = [
       '<div class="oai-appear-row">',
-        '<span class="oai-appear-field-label">Color theme</span>',
-        '<select class="oai-appear-select" id="oai-color-select">',
+        '<span class="oai-appear-field-label">Color Theme</span>',
+        '<div class="oai-appear-swatches">',
           COLOR_OPTIONS.map(function (c) {
-            return '<option value="' + c.value + '"' +
-              (c.value === currentColor ? ' selected' : '') +
-              '>' + c.label + '</option>';
+            return '<button type="button" class="oai-appear-swatch' + (c.value === currentColor ? ' is-active' : '') + '"' +
+              ' data-color="' + c.value + '" aria-label="' + c.label + '"' +
+              ' style="background:' + c.hex + '"></button>';
           }).join(''),
-        '</select>',
+        '</div>',
       '</div>',
       '<div class="oai-appear-row oai-appear-row--modes">',
         '<span class="oai-appear-field-label">Theme</span>',
         '<div class="oai-appear-modes">',
           MODE_OPTIONS.map(function (m) {
             var active = m.value === currentMode;
-            return [
-              '<button class="oai-appear-mode-btn' + (active ? ' is-active' : '') + '"',
-              ' data-mode="' + m.value + '">',
-              '<span class="oai-mode-radio"><span class="oai-mode-dot"></span></span>',
-              '<span class="oai-mode-label">',
-                m.label,
-                m.sub ? '<span class="oai-mode-sub"> (' + m.sub + ')</span>' : '',
-              '</span>',
-              '</button>',
-            ].join('');
+            return '<button type="button" class="oai-appear-mode-btn' + (active ? ' is-active' : '') + '" data-mode="' + m.value + '">' +
+              '<span class="oai-mode-radio"></span>' +
+              '<span class="oai-mode-label">' + m.label + '</span>' +
+              '</button>';
           }).join(''),
         '</div>',
       '</div>',
     ].join('');
 
-    // Color select change
-    containerEl.querySelector('#oai-color-select').addEventListener('change', function (e) {
-      var activeBtn = containerEl.querySelector('.oai-appear-mode-btn.is-active');
-      var mode = activeBtn ? activeBtn.dataset.mode : currentMode;
-      saveAndApply(e.target.value, mode, containerEl);
+    // Colour swatch clicks + fast custom tooltip
+    containerEl.querySelectorAll('.oai-appear-swatch').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        containerEl.querySelectorAll('.oai-appear-swatch').forEach(function (b) { b.classList.remove('is-active'); });
+        btn.classList.add('is-active');
+        var activeMode = containerEl.querySelector('.oai-appear-mode-btn.is-active');
+        saveAndApply(btn.dataset.color, activeMode ? activeMode.dataset.mode : currentMode, containerEl);
+      });
+      btn.addEventListener('mouseenter', function () {
+        clearTimeout(_swTipTimer);
+        _swTipTimer = setTimeout(function () {
+          var t = swatchTipEl();
+          t.textContent = btn.getAttribute('aria-label') || '';
+          var r = btn.getBoundingClientRect();
+          t.style.left = (r.left + r.width / 2) + 'px';
+          t.style.top  = (r.top - 6) + 'px';
+          t.classList.add('is-visible');
+        }, 50);
+      });
+      btn.addEventListener('mouseleave', function () {
+        clearTimeout(_swTipTimer);
+        swatchTipEl().classList.remove('is-visible');
+      });
     });
 
     // Mode radio clicks
     containerEl.querySelectorAll('.oai-appear-mode-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        containerEl.querySelectorAll('.oai-appear-mode-btn').forEach(function (b) {
-          b.classList.remove('is-active');
-        });
+        containerEl.querySelectorAll('.oai-appear-mode-btn').forEach(function (b) { b.classList.remove('is-active'); });
         btn.classList.add('is-active');
-        var colorSel = containerEl.querySelector('#oai-color-select');
-        saveAndApply(colorSel ? colorSel.value : currentColor, btn.dataset.mode, containerEl);
+        var activeSwatch = containerEl.querySelector('.oai-appear-swatch.is-active');
+        saveAndApply(activeSwatch ? activeSwatch.dataset.color : currentColor, btn.dataset.mode, containerEl);
       });
     });
   }

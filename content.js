@@ -8,6 +8,14 @@
   // stabilise the single-month fill. Re-enable (set true) once that flow is solid.
   var CROSS_MONTH_ENABLED = false;
 
+  // Auto-match acceptance threshold — SHARED by Client:Engagement AND Task. Both score the
+  // Excel text against the LIVE OpenAir dropdown options using the same scoreMatch() function,
+  // so they behave identically. Only a strong, name-present match auto-fills (exact / prefix /
+  // all-words / substring all score >= 0.85); anything fuzzier is left blank for the user to
+  // pick. "Try hard, but never guess wrong" — this also kills the "nearest alphabetical" false
+  // match seen when many options share a prefix (e.g. "Connor Group : ...").
+  var MATCH_MIN = 0.85;
+
   const GRID_SEL   = '[id^="ts_c1_r"]';
   const DAY_NAMES  = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const DOW_TO_COL = [3, 4, 5, 6, 7, 8, 9];
@@ -28,6 +36,9 @@
 
   var _themeMode  = 'light';
   var _themeColor = 'slate';
+  var _hideSurprise = false; // "Preferences > don't show surprise button" (chrome.storage.sync)
+  var _autoDefault = true;        // "Preferences > auto default client:engagement and task" (default ON)
+  var _fillTimeNotesOnly = false; // "Preferences > just fill in time and notes" (default OFF)
 
   var THEME_ACCENTS = {
     slate: { hex: '#44536B', dark: '#303d50' },
@@ -120,6 +131,7 @@
       '.oai-sheet-item:hover{background:' + surfAlt + '!important}',
       // Completion modal + audit log (dark/cool need light, contrasting text)
       '.oai-completion-msg{color:' + t1 + '!important}',
+      '.oai-gif-chance,.oai-gif-reward{color:' + t2 + '!important}',
       '.oai-audit{border-color:' + bdr + '!important}',
       '.oai-audit-title{color:' + t1 + '!important}',
       '.oai-audit-summary{color:' + t3 + '!important}',
@@ -145,12 +157,18 @@
   }
 
   // Read theme on content script load and react to future changes
-  chrome.storage.sync.get(['oai_theme_color', 'oai_theme_mode'], function (prefs) {
+  chrome.storage.sync.get(['oai_theme_color', 'oai_theme_mode', 'oai_hide_surprise', 'oai_auto_default', 'oai_fill_time_notes_only'], function (prefs) {
     applyContentTheme(prefs.oai_theme_color, prefs.oai_theme_mode);
+    _hideSurprise = !!prefs.oai_hide_surprise;
+    _autoDefault = prefs.oai_auto_default !== false;      // unset -> ON
+    _fillTimeNotesOnly = !!prefs.oai_fill_time_notes_only; // unset -> OFF
   });
 
   chrome.storage.onChanged.addListener(function (changes, area) {
     if (area !== 'sync') return;
+    if (changes.oai_hide_surprise) _hideSurprise = !!changes.oai_hide_surprise.newValue;
+    if (changes.oai_auto_default) _autoDefault = changes.oai_auto_default.newValue !== false;
+    if (changes.oai_fill_time_notes_only) _fillTimeNotesOnly = !!changes.oai_fill_time_notes_only.newValue;
     var color = changes.oai_theme_color ? changes.oai_theme_color.newValue : _themeColor;
     var mode  = changes.oai_theme_mode  ? changes.oai_theme_mode.newValue  : _themeMode;
     applyContentTheme(color, mode);
@@ -220,9 +238,12 @@
   }
 
   function attachTooltip(el, text) {
+    if (!text) return;
     el.addEventListener('mouseenter', function () {
+      clearTimeout(_tooltipTimer); // drop any stale timer from a neighbouring element so the tip fires reliably
       _tooltipTimer = setTimeout(function () {
         var tip = _getTooltipEl();
+        document.body.appendChild(tip); // move to end of <body> so it renders ABOVE the current modal overlay
         tip.textContent = text;
         tip.classList.add('oai-tooltip--visible');
         var rect = el.getBoundingClientRect();
@@ -313,8 +334,8 @@
       var ceVal = ceValues[i];
 
       if (!ceVal || ceVal === '' || ceVal === ':') {
-        // Blank Client:Engagement — the user left it blank AND there was no
-        // "Connor Group : Open Code Pending" fallback (that substitution happens in Phase 1).
+        // Blank Client:Engagement — the user chose "- leave blank for import -", so we KEEP it
+        // blank on the timesheet (no "Open Code Pending" substitution anywhere now).
         // OpenAir won't spawn a row for a blank value, so commit a TEMPORARY valid option
         // just to make the row exist (this loads tasks + spawns the next empty row), record
         // the row number, then reset that row's Client:Engagement back to blank.
@@ -325,10 +346,18 @@
         var blankRowNum = emB ? parseInt(emB[1], 10) : null;
         var prevCountB = document.querySelectorAll('[id^="ts_c1_r"]').length;
         // First real option on the control = the throwaway value used to create the row.
+        // Prefer "Open Code Pending" as the throwaway engagement (a universal one every user
+        // has), else fall back to the first real option. Either way it's reset to blank below.
         var tempVal = null;
         for (var t = 0; t < erBlank.options.length; t++) {
-          var tv = erBlank.options[t].value;
-          if (tv && tv !== ':' && tv !== '_FIND') { tempVal = tv; break; }
+          var oT = erBlank.options[t];
+          if (oT.value && oT.value !== ':' && oT.value !== '_FIND' && /open code pending/i.test(oT.text || '')) { tempVal = oT.value; break; }
+        }
+        if (!tempVal) {
+          for (var t2 = 0; t2 < erBlank.options.length; t2++) {
+            var tv = erBlank.options[t2].value;
+            if (tv && tv !== ':' && tv !== '_FIND') { tempVal = tv; break; }
+          }
         }
         if (!tempVal) { rowNums.push(null); continue; } // no options at all — can't create a row
         erBlank.value = tempVal;
@@ -433,8 +462,7 @@
       if (!rowNum || seen.has(rowNum)) continue;
       seen.add(rowNum);
       var taskVal = taskMap.get(rowNum);
-      // Edge case: task left blank -> default to this row's "Open Code Pending" task.
-      if (!taskVal) taskVal = findOpenCodePendingTask(enumerateTaskOptions(rowNum));
+      // Task left blank STAYS blank — no "Open Code Pending" default. Only set it if we matched one.
       if (taskVal) {
         var sel = document.getElementById('ts_c2_r' + rowNum);
         if (sel) {
@@ -485,14 +513,12 @@
       var client = String(row[0] || '').trim();
       var task   = String(row[1] || '').trim();
       // Skip only summary/total rows. A row is included whenever ANY day has time or notes,
-      // even if Client/Task were left blank in Excel — a blank Client:Engagement/Task falls
-      // back to "Connor Group : Open Code Pending" at fill time and can be set in the review.
+      // even if Client/Task were left blank in Excel.
       if (/^total/i.test(client)) continue;
-      // Group key controls how rows merge in the review grid. Rows sharing the same real
-      // Client:Engagement + Task merge into one row; but rows with a BLANK Client:Engagement
-      // are kept DISTINCT per Excel row, otherwise multiple empty-client rows collide on the
-      // same key and overwrite each other's day values.
-      var groupKey = client ? (client + '\x00' + task) : ('\x00__blankrow_' + r);
+      // ONE grid row per Excel row — NEVER consolidate. The row index makes every row unique, so
+      // two rows with the SAME Client + Task (e.g. two "Cerebras / NS Admin" rows) stay separate
+      // and their day values never overwrite each other. The review grid mirrors the sheet 1:1.
+      var groupKey = client + '\x00' + task + '\x00#' + r;
       for (var dc of dayCols) {
         var raw      = row[dc.idx];
         var notes    = String(row[dc.notesIdx] || '').trim();
@@ -533,8 +559,9 @@
   // returns the best-matching option value, or null if nothing clears threshold.
   // OpenAir task labels carry an ID prefix like "26: Phase 3 …" - strip it before
   // scoring so the free-text Excel task can match. Mirrors the Client:Engagement
-  // matching (scoreMatch + 0.4 threshold).
+  // matching (scoreMatch + MATCH_MIN threshold).
   function resolveTaskForRow(taskText, taskOpts) {
+    if (!_autoDefault) return null; // auto-default off -> leave the task blank for import
     if (!taskText || !taskOpts || taskOpts.length === 0) return null;
     var taskKey = normalise(taskText);
     if (!taskKey) return null;
@@ -544,7 +571,7 @@
       var s = scoreMatch(taskKey, lbl);
       if (s > bestScore) { bestScore = s; best = o; }
     }
-    return (best && bestScore >= 0.4) ? best.value : null;
+    return (best && bestScore >= MATCH_MIN) ? best.value : null;
   }
 
   // ── Row resolution ─────────────────────────────────────────────────────────
@@ -558,6 +585,8 @@
     var usedRowNums  = new Set(); // OpenAir rowNums already assigned this pass
 
     return rawEntries.map(function (entry) {
+      // auto-default off -> don't guess; leave Client:Engagement blank ("- leave blank for import -")
+      if (!_autoDefault) return Object.assign({}, entry, { matchedValue: null, matchedLabel: null, row: null });
       var clientKey = normalise(entry.clientEngagement); // match on C:E only, NOT task
 
       var optVal, optLabel;
@@ -576,9 +605,9 @@
           var s = scoreMatch(clientKey, normalise(opt.label));
           if (s > bestScore) { bestScore = s; bestOpt = opt; }
         }
-        // Require ≥ 0.4 to avoid spurious matches from short shared substrings
-        optVal   = (bestOpt && bestScore >= 0.4) ? bestOpt.value : null;
-        optLabel = (bestOpt && bestScore >= 0.4) ? bestOpt.label : null;
+        // Require a strong, name-present match (>= MATCH_MIN); else leave blank.
+        optVal   = (bestOpt && bestScore >= MATCH_MIN) ? bestOpt.value : null;
+        optLabel = (bestOpt && bestScore >= MATCH_MIN) ? bestOpt.label : null;
         passCache.set(clientKey, optVal);
       }
 
@@ -756,7 +785,7 @@
     return '<div class="oai-conf-hint-legend-row">' +
         '<div class="oai-conf-step-hint">' +
           'Step 1: Review <strong>Client : Engagement</strong> column, time, and notes<br>' +
-          '- If you can\'t find your <strong>Client : Engagement</strong>, leave as blank' +
+          '- If you can\'t find your <strong>Client : Engagement</strong>, select - leave blank for import -' +
         '</div>' +
         '<div class="oai-conf-right-col">' +
           (stats._fileName || stats._sheetName ? '<div class="oai-conf-sheet-label">' + (stats._fileName ? 'file name: <strong>' + esc(stats._fileName) + '</strong><br>' : '') + 'sheet name: <strong>' + esc(stats._sheetName || '') + '</strong>' + '</div>' : '') +
@@ -795,18 +824,21 @@
     // Build client+task cells per row
     for (var key of rowKeys) {
       var r        = rowMap.get(key);
+      var isBlankCE = !r.matchedLabel; // user left "- leave blank for import -" in Step 1
       var taskOpts = r.row ? (rowTaskOptions.get(r.row) || []) : [];
       var curTask  = taskMap.get(r.row) || '';
-      if (!curTask && taskOpts.length > 0) {
+      if (!isBlankCE && !curTask && taskOpts.length > 0) {
         var _autoTask = resolveTaskForRow(r.task, taskOpts);
         if (_autoTask) { curTask = _autoTask; if (r.row) taskMap.set(r.row, _autoTask); }
       }
 
-      // Client:Engagement -- read-only
-      r._clientCellHtml = '<td class="oai-conf-td oai-conf-td--client oai-conf-td--readonly">' + esc(r.matchedLabel || r.client) + '</td>';
+      // Client:Engagement -- read-only. Reflect the STEP 1 choice: the matched label, or the blank
+      // placeholder when the user left it blank -- never the raw Excel client text.
+      r._clientCellHtml = '<td class="oai-conf-td oai-conf-td--client oai-conf-td--readonly">' +
+        (isBlankCE ? '<span class="oai-conf-ce-blank">- leave blank for import -</span>' : esc(r.matchedLabel)) + '</td>';
 
-      // Task dropdown - always render a select; mark as data-loading if options not yet available
-      var _taskLoading = taskOpts.length === 0;
+      // Task dropdown. Blank-engagement rows have no tasks to load, so they never show a loading spinner.
+      var _taskLoading = !isBlankCE && taskOpts.length === 0;
       var opts = '<option value="">- leave blank for import -</option>';
       for (var o of taskOpts) {
         opts += '<option value="' + esc(o.value) + '"' + (o.value === curTask ? ' selected' : '') + '>' + esc(o.label) + '</option>';
@@ -824,7 +856,7 @@
       : '';
     return '<div class="oai-conf-hint-legend-row">' +
         '<div class="oai-conf-step-hint oai-conf-step-hint--bottom">' +
-          'Step 2: Review <strong>Task</strong> - if you can\'t find your Task, leave as blank' +
+          'Step 2: Review <strong>Task</strong> - if you can\'t find your Task, select - leave blank for import -' +
         '</div>' +
         '<div class="oai-conf-right-col">' +
           _metaLabel +
@@ -838,6 +870,96 @@
       '<th class="oai-conf-th oai-conf-th--total">TOTAL</th>' +
       '</tr></thead><tbody>' + body.html + footer + '</tbody></table></div>' +
       (meta && meta.stats ? _statsHtml(meta.stats) : '');
+  }
+
+  // ── "Just fill time & notes" mode ────────────────────────────────────────────
+  // Read-only review: Client:Engagement + Task are shown as plain Excel text (no dropdowns).
+  // On Fill, handleFile leaves BOTH blank on the timesheet and writes only hours + notes.
+  function buildTimeNotesGrid(entries, meta) {
+    var rowKeys = [], rowMap = new Map();
+    for (var e of entries) {
+      var key = e.groupKey;
+      if (!rowMap.has(key)) {
+        rowKeys.push(key);
+        rowMap.set(key, { client: e.clientEngagement, task: e.task, days: new Array(7).fill(null), _clientCellHtml: '' });
+      }
+      var rec = rowMap.get(key);
+      var dow = COL_TO_DOW[e.col];
+      if (dow !== undefined) rec.days[dow] = { hours: e.hours, notes: e.notes };
+    }
+    for (var key of rowKeys) {
+      var r = rowMap.get(key);
+      r._clientCellHtml =
+        '<td class="oai-conf-td oai-conf-td--client oai-conf-td--readonly">' + esc(r.client || '\u2014') + '</td>' +
+        '<td class="oai-conf-td oai-conf-td--task"><select class="oai-conf-sel oai-conf-sel--readonly" tabindex="-1" aria-readonly="true"><option>' + esc(r.task || '\u2014') + '</option></select></td>';
+    }
+    var body   = _buildDayRows(rowKeys, rowMap);
+    var footer = _footerRow(body.dayTotals, body.grandTotal, 2);
+    var _metaLabel = (meta && (meta.fileName || meta.sheetName))
+      ? '<div class="oai-conf-sheet-label">' + (meta.fileName ? 'file name: <strong>' + esc(meta.fileName) + '</strong><br>' : '') + 'sheet name: <strong>' + esc(meta.sheetName || '') + '</strong>' + '</div>'
+      : '';
+    return '<div class="oai-conf-hint-legend-row">' +
+        '<div class="oai-conf-step-hint oai-conf-step-hint--bottom">' +
+          'Time &amp; notes only \u2014 <strong>Client : Engagement</strong> and <strong>Task</strong> are shown for reference and will be left blank on your timesheet' +
+        '</div>' +
+        '<div class="oai-conf-right-col">' + _metaLabel + LEGEND_HTML + '</div>' +
+      '</div>' +
+      '<div class="oai-conf-scroll"><table class="oai-conf-table"><thead><tr>' +
+      '<th class="oai-conf-th oai-conf-th--client">CLIENT : ENGAGEMENT</th>' +
+      '<th class="oai-conf-th oai-conf-th--task">TASK</th>' +
+      DAY_NAMES.map(function (d) { return '<th class="oai-conf-th oai-conf-th--day">' + d.toUpperCase() + '</th>'; }).join('') +
+      '<th class="oai-conf-th oai-conf-th--total">TOTAL</th>' +
+      '</tr></thead><tbody>' + body.html + footer + '</tbody></table></div>' +
+      (meta && meta.stats ? _statsHtml(meta.stats) : '');
+  }
+
+  // Single read-only modal for the "just fill time & notes" preference. Reuses the same modal
+  // shell + grid helpers as the two-phase flow; resolves { confirmed, goBack }.
+  function showTimeNotesOnly(entries, meta, crossMonth) {
+    return new Promise(function (resolve) {
+      var overlay = document.createElement('div');
+      overlay.className = 'oai-modal-overlay';
+      var modal = document.createElement('div');
+      modal.className = 'oai-modal oai-modal--conf';
+
+      var crossMonthHtml = '';
+      if (crossMonth && crossMonth.isCross) {
+        var dateRange = formatCrossMonthDates(crossMonth.from, crossMonth.to);
+        crossMonthHtml =
+          '<div class="oai-conf-cross-month-warning">' +
+            '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12" y2="17.01"/></svg>' +
+            ' This timesheet spans two months (' + esc(dateRange) + '). ' + (CROSS_MONTH_ENABLED ? 'The tool will fill both months.' : '<br>Only the current month will be filled, switch to the other month and run again') +
+          '</div>';
+      }
+
+      modal.innerHTML =
+        '<div class="oai-conf-header">' +
+          '<span class="oai-conf-title-group">' +
+            '<span class="oai-conf-title">Fill Time &amp; Notes Only</span>' +
+          '</span>' +
+          '<button class="oai-modal-x" id="oai-tn-x" aria-label="Close">&times;</button>' +
+        '</div>' +
+        '<div class="oai-conf-inner">' + buildTimeNotesGrid(entries, meta) + '</div>' +
+        '<div class="oai-conf-actions">' +
+          crossMonthHtml +
+          '<div class="oai-conf-buttons">' +
+            '<button class="oai-btn oai-btn--secondary" id="oai-tn-back"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg> Back</button>' +
+            '<button class="oai-btn oai-btn--primary" id="oai-tn-ok">Fill Timesheet</button>' +
+          '</div>' +
+        '</div>';
+
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+      attachTooltips(modal);
+
+      function close(confirmed, goBack) {
+        if (overlay.parentNode) document.body.removeChild(overlay);
+        resolve({ confirmed: confirmed, goBack: !!goBack });
+      }
+      modal.querySelector('#oai-tn-ok').addEventListener('click',   function () { close(true); });
+      modal.querySelector('#oai-tn-back').addEventListener('click', function () { close(false, true); });
+      modal.querySelector('#oai-tn-x').addEventListener('click',    function () { close(false); });
+    });
   }
 
   // ── _FIND handler ──────────────────────────────────────────────────────────
@@ -945,7 +1067,7 @@
   }
 
   // Completion modal. `results` = { success, failed:[{day,client,reason}], skipped }.
-  // The Audit Log only appears when something failed.
+  // The Audit Log only appears when something failed. 'surprise' rolls an emote in place.
   function showCompletionModal(results) {
     return new Promise(function (resolve) {
       var failed = (results && results.failed) ? results.failed : [];
@@ -988,6 +1110,7 @@
           auditHtml +
         '</div>' +
         '<div class="oai-conf-actions">' +
+          (_hideSurprise ? '' : '<button class="oai-btn oai-btn--secondary" id="oai-surprise">surprise</button>') +
           '<div class="oai-conf-buttons">' +
             '<button class="oai-btn oai-btn--primary" id="oai-done-close">Close</button>' +
           '</div>' +
@@ -995,14 +1118,110 @@
       overlay.appendChild(modal);
       document.body.appendChild(overlay);
 
+      // Warm the emote cache in the background so the surprise reveal is quick.
+      if (!_hideSurprise) {
+        ((window.OAI_GIFS && window.OAI_GIFS.length) ? window.OAI_GIFS : OAI_GIFS_FALLBACK)
+          .forEach(function (g) { if (g && g.url) { var pre = new Image(); pre.src = g.url; } });
+      }
+
       modal.querySelector('#oai-done-close').addEventListener('click', function () {
         if (overlay.parentNode) document.body.removeChild(overlay);
         resolve();
+      });
+
+      // 'surprise' - roll a gif and show it (with its odds); the page's CSP allows
+      // chrome-extension: images, so a direct URL renders fine. Hide the button after use.
+      var surpriseBtn = modal.querySelector('#oai-surprise');
+      if (surpriseBtn) surpriseBtn.addEventListener('click', function () {
+        var picked = rollGif();
+        if (!picked) return;
+        var body = modal.querySelector('.oai-completion-body');
+        var btn  = modal.querySelector('#oai-surprise');
+        if (btn) btn.style.display = 'none';
+        var title = modal.querySelector('.oai-conf-title');
+        if (title) title.textContent = 'Surprise'; // header becomes "Surprise" for the gif view
+
+        // Show a spinner while the gif loads, then reveal the gif + subtext AT THE SAME TIME
+        // (revealing the subtext first would spoil the surprise).
+        body.innerHTML = '<div class="oai-gif-loading"><span class="oai-spinner oai-spinner--lg"></span></div>';
+
+        var revealed = false;
+        function reveal() {
+          if (revealed) return; revealed = true;
+          body.innerHTML =
+            '<img src="' + esc(picked.url) + '" class="oai-gif-img" alt="' + esc(picked.alt) + '">' +
+            '<div class="oai-gif-chance">this gif had a <strong>' + picked.chance + '%</strong> chance of appearing!</div>' +
+            (picked.reward ? '<div class="oai-gif-reward">' + esc(picked.reward) + '</div>' : '');
+        }
+
+        var pre = new Image();
+        pre.onload  = reveal;   // image is cached now, so the reveal renders it instantly
+        pre.onerror = reveal;   // still reveal (rather than spin forever) if it fails to load
+        pre.src = picked.url;
+        if (pre.complete) reveal();               // already cached from the preload
+        setTimeout(reveal, 4000);                  // safety net
       });
     });
   }
 
   // ── Loading modal ──────────────────────────────────────────────────────────
+
+  // gifs.js (a separate content-script file) is the editable source for the emote list
+  // via window.OAI_GIFS. This inline copy is ONLY used as a fallback if that global didn't
+  // load, so the surprise button never dead-ends. Edit gifs.js to change the list.
+  var OAI_GIFS_FALLBACK = [
+    { url: 'https://cdn3.emoji.gg/emojis/366752-cat.gif',                   alt: 'cat' },
+    { url: 'https://cdn3.emoji.gg/emojis/666930-catrun.gif',               alt: 'CatRun' },
+    { url: 'https://cdn3.emoji.gg/emojis/257763-dancingcat.gif',           alt: 'DancingCat' },
+    { url: 'https://cdn3.emoji.gg/emojis/656926-wiggletailcat.gif',        alt: 'wiggletailcat' },
+    { url: 'https://cdn3.emoji.gg/emojis/79967-happy-shiba-tailwag.gif',   alt: 'happy_shiba_tailwag' },
+    { url: 'https://cdn3.emoji.gg/emojis/679076-dogkeyboard.gif',          alt: 'DogKeyboard' },
+    { url: 'https://cdn3.emoji.gg/emojis/996211-pikachu.gif',              alt: 'pikachu' },
+    { url: 'https://cdn3.emoji.gg/emojis/700719-hellokittysleighride.gif', alt: 'HelloKittySleighRide' },
+    { url: 'https://cdn3.emoji.gg/emojis/281357-christmashellokitty.gif',  alt: 'ChristmasHelloKitty' },
+    { url: 'https://cdn3.emoji.gg/emojis/747946-yoshi.gif',                alt: 'Yoshi' },
+    { url: 'https://cdn3.emoji.gg/emojis/136245-sneakycat.gif',            alt: 'sneakycat', chance: 5 },
+    { url: 'https://cdn3.emoji.gg/emojis/3516-scubbacat.gif',              alt: 'Scubbacat', chance: 1 },
+    { url: 'https://cdn3.emoji.gg/emojis/623251-shocked.gif',              alt: 'shocked',   chance: 1 },
+    { url: 'https://cdn3.emoji.gg/emojis/29323-doggorun.gif',              alt: 'Doggorun',  chance: 2 },
+    { url: 'https://cdn3.emoji.gg/emojis/8196-yoshi-bonk.gif',             alt: 'yoshi_bonk', chance: 1 },
+    { url: 'https://cdn3.emoji.gg/emojis/13344-cat-wtf.gif',               alt: 'cat_wtf', chance: 0.5, reward: 'please screenshot this to Q, he owes you a coffee' },
+  ];
+
+  // Build the weight for every gif. Entries with a pinned `chance` keep it; entries WITHOUT
+  // one are RANDOMLY assigned a share of the leftover budget so that the grand total is
+  // exactly 100%. Computed once per session (memoised) so the displayed odds stay stable.
+  var _gifWeights = null, _gifWeightsLen = -1;
+  function computeGifWeights(list) {
+    var pinnedSum = 0, unpinned = [];
+    list.forEach(function (g, i) { if (typeof g.chance === 'number') pinnedSum += g.chance; else unpinned.push(i); });
+    var budget  = Math.max(0, 100 - pinnedSum);
+    var weights = list.map(function (g) { return typeof g.chance === 'number' ? g.chance : 0; });
+    if (unpinned.length) {
+      var rand = unpinned.map(function () { return Math.random(); });
+      var rsum = rand.reduce(function (a, b) { return a + b; }, 0) || 1;
+      unpinned.forEach(function (idx, k) { weights[idx] = budget * rand[k] / rsum; }); // random share of leftover
+    }
+    return weights;
+  }
+
+  // Roll one gif from window.OAI_GIFS (gifs.js; OAI_GIFS_FALLBACK if it didn't load).
+  // Returns { url, alt, chance, reward } — chance is the effective % (up to 1 decimal).
+  function rollGif() {
+    var list = ((window.OAI_GIFS && window.OAI_GIFS.length) ? window.OAI_GIFS : OAI_GIFS_FALLBACK).slice();
+    if (!list.length) return null;
+    if (!_gifWeights || _gifWeightsLen !== list.length) { _gifWeights = computeGifWeights(list); _gifWeightsLen = list.length; }
+    var weights = _gifWeights;
+    var total = weights.reduce(function (a, w) { return a + w; }, 0) || 1;
+    var roll = Math.random() * total, cum = 0, idx = 0;
+    for (var i = 0; i < weights.length; i++) { cum += weights[i]; if (roll < cum) { idx = i; break; } }
+    return {
+      url:    list[idx].url,
+      alt:    list[idx].alt || '',
+      chance: +(weights[idx] / total * 100).toFixed(1),
+      reward: list[idx].reward || ''
+    };
+  }
 
   function showLoadingModal(message) {
     var overlay = document.createElement('div');
@@ -1063,6 +1282,7 @@
             '<button class="oai-btn oai-btn--secondary" id="oai-p1-refresh" title="Re-pull the Client : Engagement list from the page">↻ Refresh engagement</button>' +
             '<button class="oai-btn oai-btn--secondary" id="oai-p1-back"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg> Back</button>' +
             '<button class="oai-btn oai-btn--primary" id="oai-p1-ok">Step 2: Tasks <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-left:2px"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>' +
+            '<button class="oai-btn oai-btn--primary oai-btn--submit" id="oai-submit">Submit <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-left:2px"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>' +
           '</div>' +
         '</div>';
 
@@ -1094,10 +1314,12 @@
           sel.innerHTML = html;
           if (prev && Array.from(sel.options).some(function (o) { return o.value === prev; })) {
             sel.value = prev;
+          } else if (!_autoDefault) {
+            sel.value = ''; // auto-default off -> leave blank for import
           } else {
             var ckey = normalise(orderedClients[i] || ''), best = null, bestScore = 0;
             live.forEach(function (o) { var sc = scoreMatch(ckey, normalise(o.label)); if (sc > bestScore) { bestScore = sc; best = o; } });
-            sel.value = (best && bestScore >= 0.4) ? best.value : '';
+            sel.value = (best && bestScore >= MATCH_MIN) ? best.value : '';
           }
         });
         return sels.length;
@@ -1110,29 +1332,28 @@
         setTimeout(function () { b.innerHTML = o; }, 1400);
       });
 
-      function close(confirmed, goBack) {
+      function close(confirmed, goBack, submitDirect) {
         if (overlay.parentNode) document.body.removeChild(overlay);
-        resolve({ confirmed: confirmed, goBack: !!goBack, matchMap: matchMap });
+        resolve({ confirmed: confirmed, goBack: !!goBack, submitDirect: !!submitDirect, matchMap: matchMap });
       }
 
-      modal.querySelector('#oai-p1-ok').addEventListener('click', async function () {
-        var btn = this;
+      var okBtn     = modal.querySelector('#oai-p1-ok');
+      var submitBtn = modal.querySelector('#oai-submit');
+
+      // Shared commit for BOTH "Step 2: Tasks" and "Submit": read the reviewed
+      // Client:Engagement picks, build the OpenAir rows, and stamp row/CE onto each entry.
+      // `activeBtn` is only the button that shows the "Setting up rows..." progress label.
+      // Kept in one place so the two buttons can never drift apart. Returns true on success.
+      async function commitPhase1(activeBtn) {
+        var btn = activeBtn;
         var origHTML = btn.innerHTML;
-        // Edge case: a row left on "- leave blank for import -" defaults to the
-        // "Connor Group : Open Code Pending" engagement (every user has it) instead of
-        // being left blank, so its hours/notes still land on a valid row.
-        var placeholderCE = (function () {
-          var norm = function (x) { return String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); };
-          var opts = (allOptions || []).filter(function (o) { return o.value !== '_FIND'; });
-          var hit = opts.find(function (o) { return norm(o.label) === 'connor group open code pending'; }) ||
-                    opts.find(function (o) { return norm(o.label).indexOf('open code pending') >= 0; });
-          return hit ? hit.value : null;
-        })();
+        // A row left on "- leave blank for import -" is committed BLANK — no "Open Code Pending"
+        // substitution. exposeAndFillClientEngagement still spawns the OpenAir row for a blank value
+        // (via a throwaway engagement it immediately resets), so the hours/notes land on a real row
+        // while Client:Engagement stays blank on the timesheet.
         var ceArr = [];
         modal.querySelectorAll('.oai-conf-sel--client').forEach(function (sel) {
-          var v = sel.value;
-          if ((!v || v === ':') && placeholderCE) v = placeholderCE;
-          ceArr.push(v);
+          ceArr.push(sel.value);
         });
         // Unique CE+Task keys in grid order. buildPhase1Grid renders one client <select>
         // per unique key in this same order, so index i lines up with ceArr[i]. We map
@@ -1141,7 +1362,8 @@
         // which previously made every row resolve to null (blank tasks + no fill).
         var orderedKeys = [];
         entries.forEach(function (e) { var k = e.groupKey; if (orderedKeys.indexOf(k) < 0) orderedKeys.push(k); });
-        btn.disabled = true;
+        okBtn.disabled = true;
+        submitBtn.disabled = true;
         btn.textContent = 'Setting up rows…';
         try {
           var rowNums = await exposeAndFillClientEngagement(ceArr);
@@ -1157,12 +1379,24 @@
             e.matchedValue = ce;
             e.matchedLabel = ce ? (((allOptions || []).find(function (o) { return o.value === ce; }) || {}).label || ce) : null;
           });
-          close(true);
+          return true;
         } catch (err) {
-          btn.disabled = false;
+          okBtn.disabled = false;
+          submitBtn.disabled = false;
           btn.innerHTML = origHTML;
           setStatus(esc(err.message), 'error');
+          return false;
         }
+      }
+
+      // "Step 2: Tasks" -> build rows, then open the Review Tasks modal.
+      okBtn.addEventListener('click', async function () {
+        if (await commitPhase1(this)) close(true);
+      });
+      // "Submit" -> build rows, then SKIP the Review Tasks modal. handleFile auto-matches
+      // tasks and fills straight through to the completion modal (submitDirect flag).
+      submitBtn.addEventListener('click', async function () {
+        if (await commitPhase1(this)) close(true, false, true);
       });
       modal.querySelector('#oai-p1-back').addEventListener('click',  function () { close(false, true); });
       modal.querySelector('#oai-p1-x').addEventListener('click',     function () { close(false); });
@@ -1352,6 +1586,32 @@
 
         crossMonth = detectCrossMonth();
 
+        // ── "Just fill time & notes" mode: skip Client:Engagement/Task selection entirely ──
+        if (_fillTimeNotesOnly) {
+          var tn = await showTimeNotesOnly(rawEntries, { fileName: file.name, sheetName: sheetName, stats: stats }, crossMonth);
+          if (tn.goBack) continue;                       // Back -> re-show the sheet picker
+          if (!tn.confirmed) { clearStatus(); return; }
+
+          // Build one blank-Client:Engagement row per unique Excel grouping. Passing a blank
+          // value makes exposeAndFillClientEngagement spawn each OpenAir row via a throwaway
+          // engagement that it immediately resets to blank, then we fill ONLY hours + notes.
+          setStatus('<span class="oai-spinner"></span> Setting up rows\u2026', 'info');
+          var tnKeys = [];
+          rawEntries.forEach(function (e) { if (tnKeys.indexOf(e.groupKey) < 0) tnKeys.push(e.groupKey); });
+          var tnRowNums = await exposeAndFillClientEngagement(tnKeys.map(function () { return ':'; }));
+          var tnKeyToRow = new Map();
+          tnKeys.forEach(function (k, idx) { if (tnRowNums[idx]) tnKeyToRow.set(k, tnRowNums[idx]); });
+          rawEntries.forEach(function (e) { e.row = tnKeyToRow.has(e.groupKey) ? tnKeyToRow.get(e.groupKey) : null; });
+
+          setStatus('<span class="oai-spinner"></span> Filling time & notes\u2026', 'info');
+          var tnResults;
+          try { tnResults = await fillTimesheet(rawEntries); }
+          catch (err) { setStatus('Fill failed: ' + esc(err.message), 'error'); return; }
+          clearStatus();
+          await showCompletionModal(tnResults);
+          return;
+        }
+
         // ── Phase 1: Preview Data ──
         p1 = await showConfirmation(resolved, existingRows, allOptions, stats, crossMonth, sheetName, file.name);
         if (p1.goBack) continue; // Back button - re-show sheet picker
@@ -1373,7 +1633,9 @@
       // Wait briefly for OpenAir to populate task dropdowns for each row.
       var loadingModal = showLoadingModal('Loading task options…');
       setStatus('<span class="oai-spinner"></span> Loading task options…', 'info');
-      var uniqueRowNums = Array.from(new Set(finalEntries.filter(function (e) { return e.row; }).map(function (e) { return e.row; })));
+      // Only wait on rows that actually have an engagement — blank ("- leave blank for import -")
+      // rows have no tasks to load, so waiting on them would just stall the modal.
+      var uniqueRowNums = Array.from(new Set(finalEntries.filter(function (e) { return e.row && e.matchedValue; }).map(function (e) { return e.row; })));
       await waitForTaskOptions(uniqueRowNums);
 
       // Collect whatever task options are available; Phase 2 polls for the rest.
@@ -1387,20 +1649,35 @@
       loadingModal.remove();
       clearStatus();
 
-      // ── Phase 2: Input Tasks (Back button loops to sheet picker) ──
-      var p2 = await showTaskSelection(finalEntries, rowTaskOptions, crossMonth, { fileName: file.name, sheetName: sheetName, stats: stats });
-      if (p2.goBack) {
-        // User hit Back - restart from sheet picker; the while(true) loop above handles it.
-        // We re-enter handleFile from the top to avoid deep re-entrant state.
-        handleFile(file);
-        return;
+      // ── Tasks: Submit auto-matches and fills; otherwise the Review Tasks modal (Phase 2) ──
+      var fillResults, usedTaskMap;
+
+      if (p1.submitDirect) {
+        // Submit path: skip the Review Tasks modal. Auto-match each row's Task from the
+        // options OpenAir loaded (the same auto-match the Review Tasks modal pre-selects),
+        // then fill Client:Engagement + tasks + hours + notes straight through.
+        usedTaskMap = new Map();
+        finalEntries.forEach(function (e) {
+          if (e.row && !usedTaskMap.has(e.row)) {
+            var _opts = rowTaskOptions.get(e.row) || [];
+            usedTaskMap.set(e.row, _opts.length ? (resolveTaskForRow(e.task, _opts) || null) : null);
+          }
+        });
+      } else {
+        // Phase 2: Input Tasks (Back button loops to the sheet picker).
+        var p2 = await showTaskSelection(finalEntries, rowTaskOptions, crossMonth, { fileName: file.name, sheetName: sheetName, stats: stats });
+        if (p2.goBack) {
+          // User hit Back - re-enter handleFile from the top to avoid deep re-entrant state.
+          handleFile(file);
+          return;
+        }
+        if (!p2.confirmed) { clearStatus(); return; }
+        usedTaskMap = p2.taskMap;
       }
-      if (!p2.confirmed) { clearStatus(); return; }
 
       // ── Fill tasks + hours ──
       setStatus('<span class="oai-spinner"></span> Filling timesheet…', 'info');
-      var fillResults;
-      try { fillResults = await fillTasksAndHours(finalEntries, p2.taskMap); }
+      try { fillResults = await fillTasksAndHours(finalEntries, usedTaskMap); }
       catch (err) { setStatus('Fill failed: ' + esc(err.message), 'error'); return; }
 
       // ── Scenario 1: cross-month - navigate to next month and re-fill ──
@@ -1431,7 +1708,7 @@
             var k = e.groupKey;
             if (keyToRowNext.has(k)) {
               var oldRow = e.row, newRow = keyToRowNext.get(k);
-              if (p2.taskMap.has(oldRow) && !taskMapNext.has(newRow)) taskMapNext.set(newRow, p2.taskMap.get(oldRow));
+              if (usedTaskMap.has(oldRow) && !taskMapNext.has(newRow)) taskMapNext.set(newRow, usedTaskMap.get(oldRow));
               e.row = newRow;
             }
           });
