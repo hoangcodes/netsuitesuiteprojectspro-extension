@@ -268,10 +268,37 @@
 
   // ── Cross-month detection ──────────────────────────────────────────────────
 
-  function detectCrossMonth() {
-    var today    = new Date();
-    var sunday   = new Date(today);
-    sunday.setDate(today.getDate() - today.getDay());
+  function detectCrossMonth(sheetName) {
+    // 1) PREFER the week actually shown on the OpenAir page. SuiteProjects Pro renders the timesheet
+    //    period as "MM/DD/YYYY to MM/DD/YYYY" in the page header, so find that range and compare the
+    //    two months. This reflects the timesheet you have OPEN (e.g. an 8/30 week), not today.
+    try {
+      var pageText = (document.body && document.body.innerText) || '';
+      var rm = pageText.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*(?:to|through|\u2013|\u2014|-)\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/i);
+      if (rm) {
+        var pf = new Date(+rm[3], +rm[1] - 1, +rm[2]);
+        var pt = new Date(+rm[6], +rm[4] - 1, +rm[5]);
+        if (!isNaN(pf.getTime()) && !isNaN(pt.getTime())) {
+          if (pf.getMonth() !== pt.getMonth() || pf.getFullYear() !== pt.getFullYear()) {
+            return { isCross: true, from: pf, to: pt };
+          }
+          return { isCross: false };
+        }
+      }
+    } catch (_e) {}
+
+    // 2) FALLBACK: the imported sheet TAB NAME (e.g. "7-12-2026" = M-D-YYYY, the week-start).
+    // 3) FINAL fallback: today's week.
+    var base = null;
+    var m = String(sheetName || '').match(/^\s*(\d{1,2})-(\d{1,2})-(\d{4})/);
+    if (m) {
+      var mo = parseInt(m[1], 10) - 1, d = parseInt(m[2], 10), y = parseInt(m[3], 10);
+      var dt = new Date(y, mo, d);
+      if (!isNaN(dt.getTime()) && dt.getMonth() === mo && dt.getDate() === d) base = dt;
+    }
+    if (!base) base = new Date();
+    var sunday   = new Date(base);
+    sunday.setDate(base.getDate() - base.getDay());
     var saturday = new Date(sunday);
     saturday.setDate(sunday.getDate() + 6);
     if (sunday.getMonth() !== saturday.getMonth()) {
@@ -1584,7 +1611,7 @@
         stats = { entries: rawEntries.length, dataRows: uniqueKeys.size, skippedCells: skippedCells };
         clearStatus();
 
-        crossMonth = detectCrossMonth();
+        crossMonth = detectCrossMonth(sheetName);
 
         // ── "Just fill time & notes" mode: skip Client:Engagement/Task selection entirely ──
         if (_fillTimeNotesOnly) {
